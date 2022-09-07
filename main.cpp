@@ -3,7 +3,10 @@
 #include <complex>
 #include <cmath>
 
+#include <Eigen/Core>
+
 using namespace std;
+using namespace Eigen;
 
 class Besse {
 public:
@@ -12,13 +15,13 @@ public:
     double B = 0.0; // TODO: С типом пока не понятно
     double C = 0.0; // TODO: С типом пока не понятно
 
-    vector<vector<complex<double>>> u; // Решение в точке [t_n][x_m]
+    MatrixXcd u; // Решение в точке [t_n][x_m]
 
-    vector<double> x; // Сетка x
+    VectorXd x; // Сетка x
     double h; // Шаг по x
     int M; // Количество разбиений по x
 
-    vector<double> t; // Сетка t
+    VectorXd t; // Сетка t
     double k; // Шаг по t
     int N; // Количество разбиений по t
     double tStart = 0.0; // t начала
@@ -33,7 +36,7 @@ public:
     }
 
     void prepareX() {
-        x = vector<double>(M + 2);
+        x = VectorXd(M + 2);
         h = 2 * M_PI / (M + 1);
         for (int m = 0; m <= M + 1; m++) {
             x[m] = -M_PI + m * h;
@@ -41,11 +44,12 @@ public:
     }
 
     void prepareT() {
-        t = vector<double>(N + 1);
+        t = VectorXd(N + 1);
         k = (tStop - tStart) / N;
         for (int n = 0; n <= N; n++) {
             t[n] = n * k;
         }
+
     }
 
 };
