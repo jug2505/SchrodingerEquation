@@ -15,7 +15,7 @@ public:
     double B = 0.0; // TODO: С типом пока не понятно
     double C = 0.0; // TODO: С типом пока не понятно
 
-    MatrixXcd u; // Решение в точке [t_n][x_m]
+    MatrixXcd U; // Решение в точке [t_n][x_m]
 
     VectorXd x; // Сетка x
     double h; // Шаг по x
@@ -33,6 +33,7 @@ public:
 
         prepareX();
         prepareT();
+        prepareU();
     }
 
     void prepareX() {
@@ -49,7 +50,44 @@ public:
         for (int n = 0; n <= N; n++) {
             t[n] = n * k;
         }
+    }
 
+    void prepareU() {
+        U = MatrixXcd(N + 1, M + 1);
+        for (int m = 0; m <= M; m++) {
+            U(0, m) = exp(complex<double>(0.0, 1.0) * x(m)); // e^(ix) - начальная функция
+        }
+    }
+
+    void solve() {
+        VectorXcd V_minus = VectorXcd(M + 1);
+        VectorXcd V_plus = VectorXcd(M + 1);
+
+        V_minus = U.row(0).cwiseAbs2(); // V^-1/2 = |U|^2
+
+        complex<double> r = k / (2 * h * h);
+
+        for (int n = 0; n < N; n++) { // 0 -> N-1
+
+            VectorXcd tmp1 = -V_minus;
+            VectorXcd tmp2 = 2.0 * U.row(n).cwiseAbs2();
+            V_plus = tmp1 + tmp2;
+
+            MatrixXcd A_plus = MatrixXcd(M + 1, M + 1);
+
+
+            for (int m = 0; m <= M; m++) {
+                complex<double> a_plus = complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(m);
+//                if (m == 0) {
+//                    A_plus(m) = 1.0;
+//                    A_plus(m) = a_plus;
+//                    A_plus(m + 1) = 1.0;
+//                }
+                A_plus(m - 1) = 1.0;
+                A_plus(m) = a_plus;
+                A_plus(m + 1) = 1.0;
+            }
+        }
     }
 
 };
@@ -57,4 +95,5 @@ public:
 int main()
 {
     Besse besse = Besse(20, 20);
+    besse.solve();
 }
