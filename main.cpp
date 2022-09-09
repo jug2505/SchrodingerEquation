@@ -74,19 +74,36 @@ public:
             V_plus = tmp1 + tmp2;
 
             MatrixXcd A_plus = MatrixXcd(M + 1, M + 1);
-
-
-            for (int m = 0; m <= M; m++) {
+            A_plus(0, 0) = complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(0);
+            A_plus(0, 1) = 1.0;
+            A_plus(0, M) = 1.0;
+            A_plus(M, 0) = 1.0;
+            A_plus(M, M - 1) = 1.0;
+            A_plus(M, M) = complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(M);
+            for (int m = 1; m < M; m++) {
                 complex<double> a_plus = complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(m);
-//                if (m == 0) {
-//                    A_plus(m) = 1.0;
-//                    A_plus(m) = a_plus;
-//                    A_plus(m + 1) = 1.0;
-//                }
-                A_plus(m - 1) = 1.0;
-                A_plus(m) = a_plus;
-                A_plus(m + 1) = 1.0;
+                A_plus(m,m - 1) = 1.0;
+                A_plus(m, m) = a_plus;
+                A_plus(m, m + 1) = 1.0;
             }
+            A_plus = r * A_plus;
+
+            MatrixXcd A_minus = MatrixXcd(M + 1, M + 1);
+            A_minus(0, 0) = -complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(0);
+            A_minus(0, 1) = 1.0;
+            A_minus(0, M) = 1.0;
+            A_minus(M, 0) = 1.0;
+            A_minus(M, M - 1) = 1.0;
+            A_minus(M, M) = -complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(M);
+            for (int m = 1; m < M; m++) {
+                complex<double> a_minus = -complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(m);
+                A_minus(m,m - 1) = 1.0;
+                A_minus(m, m) = a_minus;
+                A_minus(m, m + 1) = 1.0;
+            }
+            A_minus = -r * A_minus;
+
+            V_minus = V_plus;
         }
     }
 
