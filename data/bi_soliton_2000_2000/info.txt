@@ -1,0 +1,1 @@
+Bi-Soliton M=2000 N=2000 t = [-5, 5] x = [-4pi, 4pi] (absolute error)
