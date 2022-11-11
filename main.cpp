@@ -13,8 +13,6 @@ using namespace Eigen;
 
 class Besse {
 public:
-    function<complex<double>(double)> init_func = nullptr; // f(x) инициализации
-
     MatrixXcd U; // Решение в точке [t_n][x_m]
     MatrixXcd U_analytic;
     MatrixXd error_matrix;
@@ -35,6 +33,7 @@ public:
     double A, B, C; // Коэффициенты аналитического решения для f(x) = exp(ix)
     bool is_bi_soliton = false;
     bool is_exp_ix = false;
+    bool is_sin_x = false;
 
     bool has_analytic = false;
 
@@ -68,8 +67,11 @@ public:
         if (is_bi_soliton) {
             prepare_u_bi_soluton();
         }
-        if (init_func) {
-            prepare_u_with_init_func();
+        if (is_exp_ix) {
+            prepare_u_exp_ix();
+        }
+        if (is_sin_x) {
+            prepare_u_sin_x();
         }
     }
 
@@ -85,11 +87,19 @@ public:
         }
     }
 
-    void prepare_u_with_init_func() {
-        cout << "BESSE: prepare U with init function" << endl;
+    void prepare_u_exp_ix() {
+        cout << "BESSE: prepare U exp(ix)" << endl;
         U = MatrixXcd::Zero(N + 1, M + 1);
-        for (int m = 0; m <= M; m++) {
-            U(0, m) = init_func(x(m));
+        for (int x_idx = 0; x_idx < x.size(); x_idx++) {
+            U(0, x_idx) = exp(complex<double>(0.0, 1.0) * complex<double>(x(x_idx), 0.0));
+        }
+    }
+
+    void prepare_u_sin_x() {
+        cout << "BESSE: prepare U sin(x)" << endl;
+        U = MatrixXcd::Zero(N + 1, M + 1);
+        for (int x_idx = 0; x_idx < x.size(); x_idx++) {
+            U(0, x_idx) = complex<double>(sin(x(x_idx)), 0.0);
         }
     }
 
@@ -104,13 +114,13 @@ public:
     }
 
     void write_abs_matrix_to_file(const MatrixXcd& src, const string& path_and_name) {
-        MatrixXd imag = MatrixXd::Zero(src.rows(), src.cols());
-        for (int t_idx = 0; t_idx < src.rows(); t_idx++) {
-            for (int x_idx = 0; x_idx < src.cols(); x_idx++) {
-               imag(t_idx, x_idx) = abs(src(t_idx, x_idx));
+        MatrixXd abs_matrix = MatrixXd::Zero(src.rows(), src.cols());
+        for (int t_idx = 0; t_idx < t.size(); t_idx++) {
+            for (int x_idx = 0; x_idx < x.size(); x_idx++) {
+               abs_matrix(t_idx, x_idx) = abs(src(t_idx, x_idx));
             }
         }
-        write_matrix_to_file(imag, path_and_name);
+        write_matrix_to_file(abs_matrix, path_and_name);
     }
 
     void write_matrix_to_file(const MatrixXd& src, const string& path_and_name) {
@@ -165,9 +175,16 @@ public:
         cout << "BESSE: compute absolute error" << endl;
         error_matrix = MatrixXd::Zero(N + 1, M + 1);
         for (int t_idx = 0; t_idx < t.size(); t_idx++) {
+            //double avg = 0.0;
             for (int x_idx = 0; x_idx < x.size(); x_idx++) {
+                //avg += abs(U_analytic(t_idx, x_idx) - U(t_idx, x_idx));
                 error_matrix(t_idx, x_idx) = abs(U_analytic(t_idx, x_idx) - U(t_idx, x_idx));
             }
+//            avg = avg / (double)x.size();
+//            for (int x_idx = 0; x_idx < x.size(); x_idx++) {
+//                error_matrix(t_idx, x_idx) = avg;
+//            }
+
         }
     }
 
@@ -194,11 +211,11 @@ public:
         VectorXcd V_plus = VectorXcd::Zero(M + 1);
 
         // V^-1/2 = |U|^2
-        for (int x_idx = 0; x_idx < U.cols(); x_idx++) {
+        for (int x_idx = 0; x_idx < x.size(); x_idx++) {
             V_minus(x_idx) = abs(U(0, x_idx)) * abs(U(0, x_idx));
         }
 
-        double r = k / (2.0 * h * h);
+        complex<double> r = complex<double>(k / (2.0 * h * h), 0.0);
         cout << "r: " << r << endl;
 
         for (int n = 0; n < N; n++) { // 0 -> N-1 / Считаем U от 1 до N
@@ -208,8 +225,8 @@ public:
 
             // Вычисление V_plus
             VectorXcd _tmp_vector1 = -V_minus;
-            VectorXcd _tmp_vector2 = VectorXcd::Zero(U.cols());
-            for (int x_idx = 0; x_idx < U.cols(); x_idx++) {
+            VectorXcd _tmp_vector2 = VectorXcd::Zero(x.size());
+            for (int x_idx = 0; x_idx < x.size(); x_idx++) {
                 _tmp_vector2(x_idx) = 2.0 * abs(U(n, x_idx)) * abs(U(n, x_idx));
             }
             V_plus = _tmp_vector1 + _tmp_vector2;
@@ -217,36 +234,36 @@ public:
             MatrixXcd A_plus = MatrixXcd::Zero(M + 1, M + 1);
             // Первая строка
             A_plus(0, 0) = complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(0);
-            A_plus(0, 1) = 1.0;
-            A_plus(0, M) = 1.0;
+            A_plus(0, 1) =  complex<double>(1.0, 0.0);
+            A_plus(0, M) = complex<double>(1.0, 0.0);
             // Последняя строка
-            A_plus(M, 0) = 1.0;
-            A_plus(M, M - 1) = 1.0;
+            A_plus(M, 0) = complex<double>(1.0, 0.0);
+            A_plus(M, M - 1) = complex<double>(1.0, 0.0);
             A_plus(M, M) = complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(M);
             // Промежуточные строки
             for (int m = 1; m < M; m++) {
                 complex<double> a_plus = complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(m);
-                A_plus(m, m - 1) = 1.0;
+                A_plus(m, m - 1) = complex<double>(1.0, 0.0);
                 A_plus(m, m) = a_plus;
-                A_plus(m, m + 1) = 1.0;
+                A_plus(m, m + 1) = complex<double>(1.0, 0.0);
             }
             A_plus = r * A_plus;
 
             MatrixXcd A_minus = MatrixXcd::Zero(M + 1, M + 1);
             // Первая строка
             A_minus(0, 0) = -complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(0);
-            A_minus(0, 1) = 1.0;
-            A_minus(0, M) = 1.0;
+            A_minus(0, 1) = complex<double>(1.0, 0.0);
+            A_minus(0, M) = complex<double>(1.0, 0.0);
             // Последняя строка
-            A_minus(M, 0) = 1.0;
-            A_minus(M, M - 1) = 1.0;
+            A_minus(M, 0) = complex<double>(1.0, 0.0);
+            A_minus(M, M - 1) = complex<double>(1.0, 0.0);
             A_minus(M, M) = -complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(M);
             // Промежуточные строки
             for (int m = 1; m < M; m++) {
                 complex<double> a_minus = -complex<double>(0.0, 1.0) / r - 2.0 - lambda * h * h * V_plus(m);
-                A_minus(m, m - 1) = 1.0;
+                A_minus(m, m - 1) = complex<double>(1.0, 0.0);
                 A_minus(m, m) = a_minus;
-                A_minus(m, m + 1) = 1.0;
+                A_minus(m, m + 1) = complex<double>(1.0, 0.0);
             }
             A_minus = -r * A_minus;
 
@@ -273,7 +290,7 @@ public:
         besse->t_stop = 5.0;
         besse->x_start = -3.0 * M_PI;
         besse->x_stop = 3.0 * M_PI;
-        besse->lambda = -2;
+        besse->lambda = -2.0;
 
         besse->init();
         besse->solve("../data/bi_soliton_400_400");
@@ -288,7 +305,7 @@ public:
         besse->t_stop = 5.0;
         besse->x_start = -4.0 * M_PI;
         besse->x_stop = 4.0 * M_PI;
-        besse->lambda = -2;
+        besse->lambda = -2.0;
 
         besse->init();
         besse->solve("../data/bi_soliton_2000_2000");
@@ -303,11 +320,10 @@ public:
         besse->t_stop = 5.0;
         besse->x_start = -M_PI;
         besse->x_stop = M_PI;
-        besse->lambda = 1;
-        besse->A = 1;
-        besse->B = 1;
-        besse->C = 0;
-        besse->init_func = [](double x_val) -> complex<double> {return exp(complex<double>(0.0, 1.0) * x_val);};
+        besse->lambda = 1.0;
+        besse->A = 1.0;
+        besse->B = 1.0;
+        besse->C = 0.0;
 
         besse->init();
         besse->solve("../data/exp_ix_400_400");
@@ -315,14 +331,14 @@ public:
 
     static void compute_sin_x_500_1000() {
         Besse* besse = new Besse();
+        besse->is_sin_x = true;
         besse->M = 500;
         besse->N = 1000;
         besse->t_start = 0.0;
         besse->t_stop = 5.0;
         besse->x_start = -M_PI;
         besse->x_stop = M_PI;
-        besse->lambda = -2;
-        besse->init_func = [](double x_val) -> complex<double> {return {sin(x_val), 0.0};};
+        besse->lambda = -2.0;
 
         besse->init();
         besse->solve("../data/sin_x_500_1000");
@@ -337,11 +353,10 @@ public:
         besse->t_stop = 5.0;
         besse->x_start = -M_PI;
         besse->x_stop = M_PI;
-        besse->lambda = -2;
-        besse->A = 1;
-        besse->B = 1;
-        besse->C = 0;
-        besse->init_func = [](double x_val) -> complex<double> {return exp(complex<double>(0.0, 1.0) * x_val);};
+        besse->lambda = -2.0;
+        besse->A = 1.0;
+        besse->B = 1.0;
+        besse->C = 0.0;
 
         besse->init();
         besse->solve("../data/exp_ix_400_400_lambda_minus2");
@@ -350,5 +365,5 @@ public:
 
 
 int main(){
-    BesseHelper::compute_exp_ix_400_400();
+    BesseHelper::compute_bi_soliton_2000_2000();
 }
