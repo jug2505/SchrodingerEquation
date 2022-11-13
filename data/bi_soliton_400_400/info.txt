@@ -1,1 +1,0 @@
-Bi-Soliton M=400 N=400 t = [-5, 5] x = [-3pi, 3pi] (abs)

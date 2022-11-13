@@ -281,38 +281,23 @@ public:
 
 class BesseHelper {
 public:
-    static void compute_bi_soliton_400_400() {
-        Besse* besse = new Besse();
+    static void compute_bi_soliton_500_500() {
+        Besse *besse = new Besse();
         besse->is_bi_soliton = true;
-        besse->M = 400;
-        besse->N = 400;
+        besse->M = 500;
+        besse->N = 500;
         besse->t_start = -5.0;
-        besse->t_stop = 5.0;
+        besse->t_stop = -5.0;
         besse->x_start = -3.0 * M_PI;
         besse->x_stop = 3.0 * M_PI;
         besse->lambda = -2.0;
 
         besse->init();
-        besse->solve("../data/bi_soliton_400_400");
-    }
-
-    static void compute_bi_soliton_2000_2000() {
-        Besse* besse = new Besse();
-        besse->is_bi_soliton = true;
-        besse->M = 2000;
-        besse->N = 2000;
-        besse->t_start = -5.0;
-        besse->t_stop = 5.0;
-        besse->x_start = -4.0 * M_PI;
-        besse->x_stop = 4.0 * M_PI;
-        besse->lambda = -2.0;
-
-        besse->init();
-        besse->solve("../data/bi_soliton_2000_2000");
+        besse->solve("../data/bi_soliton_500_500");
     }
 
     static void compute_exp_ix_400_400() {
-        Besse* besse = new Besse();
+        Besse *besse = new Besse();
         besse->is_exp_ix = true;
         besse->M = 400;
         besse->N = 400;
@@ -330,7 +315,7 @@ public:
     }
 
     static void compute_sin_x_500_1000() {
-        Besse* besse = new Besse();
+        Besse *besse = new Besse();
         besse->is_sin_x = true;
         besse->M = 500;
         besse->N = 1000;
@@ -343,27 +328,9 @@ public:
         besse->init();
         besse->solve("../data/sin_x_500_1000");
     }
-
-    static void compute_exp_ix_400_400_lambda_minus2() {
-        Besse* besse = new Besse();
-        besse->is_exp_ix = true;
-        besse->M = 400;
-        besse->N = 400;
-        besse->t_start = 0.0;
-        besse->t_stop = 5.0;
-        besse->x_start = -M_PI;
-        besse->x_stop = M_PI;
-        besse->lambda = -2.0;
-        besse->A = 1.0;
-        besse->B = 1.0;
-        besse->C = 0.0;
-
-        besse->init();
-        besse->solve("../data/exp_ix_400_400_lambda_minus2");
-    }
 };
 
 
 int main(){
-    BesseHelper::compute_bi_soliton_2000_2000();
+    BesseHelper::compute_bi_soliton_500_500();
 }
