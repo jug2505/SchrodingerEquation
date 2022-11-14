@@ -1,5 +1,5 @@
 #include <iostream>
-#include <utility>
+#include <chrono>
 #include <vector>
 #include <complex>
 #include <cmath>
@@ -7,6 +7,7 @@
 #include <Eigen/Core>
 #include <Eigen/LU>
 #include <fstream>
+#include <memory>
 
 using namespace std;
 using namespace Eigen;
@@ -45,8 +46,8 @@ public:
 
     void prepare_x() {
         cout << "BESSE: prepare X" << endl;
-        x = VectorXd::Zero(M + 1); // TODO: M + 2?
-        h = (x_stop - x_start) / M;
+        x = VectorXd::Zero(M + 1);
+        h = (x_stop - x_start) / (M + 1);
         cout << "h: " << h << endl;
         for (int m = 0; m <= M; m++) {
             x[m] = x_start + m * h;
@@ -56,7 +57,7 @@ public:
     void prepare_t() {
         cout << "BESSE: prepare T" << endl;
         t = VectorXd::Zero(N + 1);
-        k = (t_stop - t_start) / N;
+        k = (t_stop - t_start) / (N + 1);
         cout << "k: " << k << endl;
         for (int n = 0; n <= N; n++) {
             t[n] = t_start + n * k;
@@ -175,16 +176,9 @@ public:
         cout << "BESSE: compute absolute error" << endl;
         error_matrix = MatrixXd::Zero(N + 1, M + 1);
         for (int t_idx = 0; t_idx < t.size(); t_idx++) {
-            //double avg = 0.0;
             for (int x_idx = 0; x_idx < x.size(); x_idx++) {
-                //avg += abs(U_analytic(t_idx, x_idx) - U(t_idx, x_idx));
                 error_matrix(t_idx, x_idx) = abs(U_analytic(t_idx, x_idx) - U(t_idx, x_idx));
             }
-//            avg = avg / (double)x.size();
-//            for (int x_idx = 0; x_idx < x.size(); x_idx++) {
-//                error_matrix(t_idx, x_idx) = avg;
-//            }
-
         }
     }
 
@@ -282,12 +276,12 @@ public:
 class BesseHelper {
 public:
     static void compute_bi_soliton_500_500() {
-        Besse *besse = new Besse();
+        unique_ptr<Besse> besse(new Besse);
         besse->is_bi_soliton = true;
         besse->M = 500;
         besse->N = 500;
         besse->t_start = -5.0;
-        besse->t_stop = -5.0;
+        besse->t_stop = 5.0;
         besse->x_start = -3.0 * M_PI;
         besse->x_stop = 3.0 * M_PI;
         besse->lambda = -2.0;
@@ -297,7 +291,7 @@ public:
     }
 
     static void compute_exp_ix_400_400() {
-        Besse *besse = new Besse();
+        unique_ptr<Besse> besse(new Besse);
         besse->is_exp_ix = true;
         besse->M = 400;
         besse->N = 400;
@@ -315,7 +309,7 @@ public:
     }
 
     static void compute_sin_x_500_1000() {
-        Besse *besse = new Besse();
+        unique_ptr<Besse> besse(new Besse);
         besse->is_sin_x = true;
         besse->M = 500;
         besse->N = 1000;
@@ -332,5 +326,11 @@ public:
 
 
 int main(){
-    BesseHelper::compute_bi_soliton_500_500();
+    auto begin = chrono::steady_clock::now();
+
+    BesseHelper::compute_exp_ix_400_400();
+
+    auto end = chrono::steady_clock::now();
+    auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
+    cout << "Время работы: " << elapsed_m.count() << " минут" << endl;
 }
