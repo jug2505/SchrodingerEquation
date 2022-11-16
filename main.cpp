@@ -297,8 +297,8 @@ public:
         besse->N = 1000;
         besse->t_start = -5.0;
         besse->t_stop = 5.0;
-        besse->x_start = -3.0 * M_PI;
-        besse->x_stop = 3.0 * M_PI;
+        besse->x_start = -4.0 * M_PI;
+        besse->x_stop = 4.0 * M_PI;
         besse->lambda = -2.0;
 
         besse->init();

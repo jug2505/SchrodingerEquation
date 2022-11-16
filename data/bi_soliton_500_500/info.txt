@@ -1,1 +1,1 @@
-Bi-Soliton M=500 N=500 t = [-5, 5] x = [-3pi, 3pi] (abs)
+Bi-Soliton M=500 N=500 t = [-5, 5] x = [-3pi, 3pi]
