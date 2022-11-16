@@ -290,6 +290,21 @@ public:
         besse->solve("../data/bi_soliton_500_500");
     }
 
+    static void compute_bi_soliton_1000_1000() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->is_bi_soliton = true;
+        besse->M = 1000;
+        besse->N = 1000;
+        besse->t_start = -5.0;
+        besse->t_stop = 5.0;
+        besse->x_start = -3.0 * M_PI;
+        besse->x_stop = 3.0 * M_PI;
+        besse->lambda = -2.0;
+
+        besse->init();
+        besse->solve("../data/bi_soliton_1000_1000");
+    }
+
     static void compute_exp_ix_400_400() {
         unique_ptr<Besse> besse(new Besse);
         besse->is_exp_ix = true;
@@ -328,7 +343,7 @@ public:
 int main(){
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_bi_soliton_500_500();
+    BesseHelper::compute_bi_soliton_1000_1000();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
