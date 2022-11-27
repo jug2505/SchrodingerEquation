@@ -17,6 +17,7 @@ public:
     MatrixXcd U; // Решение в точке [t_n][x_m]
     MatrixXcd U_analytic;
     MatrixXd error_matrix;
+    VectorXd conservedVector;
 
     VectorXd x; // Сетка x
     double x_start = -M_PI; // x начала
@@ -37,6 +38,8 @@ public:
     bool is_sin_x = false;
 
     bool has_analytic = false;
+    bool is_conserved = false;
+    double M_u = 0.0;
 
     void init() {
         prepare_x();
@@ -138,6 +141,20 @@ public:
         }
     }
 
+    void write_vector_to_file(const VectorXd& src, const string& path_and_name) {
+        cout << "BESSE: write vector " << path_and_name << endl;
+        ofstream file(path_and_name, ios::out | ios::trunc);
+        if(file) {
+            file << "T Value" << endl;
+            for (int t_idx = 0; t_idx < t.size(); t_idx++) {
+                file << t(t_idx) << " " << src(t_idx) << endl;
+            }
+            file.close();
+        }
+    }
+
+
+
     void analytic_solution() {
         if (is_bi_soliton) {
             analytic_solution_bi_soliton();
@@ -182,9 +199,20 @@ public:
         }
     }
 
+    void compute_conserved_vector() {
+        cout << "BESSE: compute conserved vector" << endl;
+        conservedVector = VectorXd::Zero(N+1);
+        for (int t_idx = 0; t_idx < t.size(); t_idx++) {
+            double conserved = 0.0;
+            for (int x_idx = 0; x_idx < x.size(); x_idx++) {
+                conserved += abs(U(t_idx, x_idx)) * abs(U(t_idx, x_idx));
+            }
+            conservedVector(t_idx) = M_u - h * conserved;
+        }
+    }
+
     void solve(const string& folder) {
         cout << "BESSE: in solve" << endl;
-        init();
         compute();
         write_real_matrix_to_file(U, folder + "/real.txt");
         write_imag_matrix_to_file(U, folder + "/imag.txt");
@@ -196,6 +224,10 @@ public:
             write_abs_matrix_to_file(U_analytic, folder + "/abs_analytic.txt");
             compute_absolute_error();
             write_matrix_to_file(error_matrix, folder + "/error_matrix.txt");
+        }
+        if (is_conserved) {
+            compute_conserved_vector();
+            write_vector_to_file(conservedVector, folder + "/conserved.txt");
         }
     }
 
@@ -290,6 +322,21 @@ public:
         besse->solve("../data/bi_soliton_500_500");
     }
 
+    static void compute_bi_soliton_1000_1000_0_10() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->is_bi_soliton = true;
+        besse->M = 1000;
+        besse->N = 1000;
+        besse->t_start = 0.0;
+        besse->t_stop = 10.0;
+        besse->x_start = -4.0 * M_PI;
+        besse->x_stop = 4.0 * M_PI;
+        besse->lambda = -2.0;
+
+        besse->init();
+        besse->solve("../data/bi_soliton_1000_1000_0_10");
+    }
+
     static void compute_bi_soliton_1000_1000() {
         unique_ptr<Besse> besse(new Besse);
         besse->is_bi_soliton = true;
@@ -323,6 +370,26 @@ public:
         besse->solve("../data/exp_ix_400_400");
     }
 
+    static void compute_exp_ix_400_400_Mu() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->is_exp_ix = true;
+        besse->M = 400;
+        besse->N = 400;
+        besse->t_start = 0.0;
+        besse->t_stop = 5.0;
+        besse->x_start = -M_PI;
+        besse->x_stop = M_PI;
+        besse->lambda = -2.0;
+        besse->A = 1.0;
+        besse->B = 1.0;
+        besse->C = 0.0;
+        besse->is_conserved = true;
+        besse->M_u = 2.0 * M_PI;
+
+        besse->init();
+        besse->solve("../data/exp_ix_400_400_Mu");
+    }
+
     static void compute_sin_x_500_1000() {
         unique_ptr<Besse> besse(new Besse);
         besse->is_sin_x = true;
@@ -341,10 +408,10 @@ public:
 
 
 int main(){
-    Eigen::setNbThreads(6);
+    Eigen::setNbThreads(4);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_bi_soliton_1000_1000();
+    BesseHelper::compute_exp_ix_400_400_Mu();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
