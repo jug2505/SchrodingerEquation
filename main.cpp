@@ -411,7 +411,7 @@ int main(){
     Eigen::setNbThreads(4);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_exp_ix_400_400_Mu();
+    BesseHelper::compute_bi_soliton_1000_1000_0_10();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
