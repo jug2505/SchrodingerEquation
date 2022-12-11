@@ -30,10 +30,34 @@ public:
     double omega0 = 1.0e14;
     double Kb = 1.38e-16;
     double T = 77.0 * Kb;
+    double t = 0.0; // Не понятно, что это
 
     int num_splits = 100;
 
+    VectorXd phi_abs_coefficients = VectorXd::Zero(10); // Индекс - степень |Ф|
 
+    void compute_coefficients() {
+
+        for (int alpha = 1; alpha <= 9; alpha++) {
+            for (int s = 1; s <= 7; s++) {
+                for (int l = 0; l <= 5; l++) {
+                    phi_abs_coefficients(2 * l) += pow(-1.0, l) * pow(alpha, 2.0 * l) / (factorial(l) * factorial(l + 1) * pow(2.0, 2.0 * l));
+                    phi_abs_coefficients(2 * l) *= G1(alpha, s);
+                }
+            }
+
+        }
+
+
+    }
+
+    double G1(double alpha, double s) {
+        return G(alpha, s) * cos(alpha * E0 * t);
+    }
+
+    double G2(double alpha, double s) {
+        return G(alpha, s) * sin(alpha * E0 * t);
+    }
 
     double G(double alpha, double s) {
         double nominator = simpsonIntegral(-M_PI, M_PI, num_splits, [this, &s, &alpha](double r) {
@@ -73,6 +97,14 @@ public:
         }
 
         return simpson_integral;
+    }
+
+    static double factorial(const int n)
+    {
+        double f = 1;
+        for (int i=1; i<=n; ++i)
+            f *= i;
+        return f;
     }
 
 };
