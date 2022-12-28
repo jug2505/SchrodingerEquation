@@ -1,1 +1,1 @@
-f(x) = exp(ix)  M=400 N = 400 t = [0, 5]  x = [-pi, pi] lambda=1 a=1 b=1 c=0
+f(x) = exp(ix)  M=400 N = 400 t_coef = [0, 5]  x = [-pi, pi] lambda=1 a=1 b=1 c=0
