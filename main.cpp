@@ -36,8 +36,10 @@ public:
     double omega = 5.0e14;
     double omega0 = 1.0e14;
     double Kb = 1.38e-16;
-    double T = 77.0 * Kb;
+    double T = 77.0;
     double t_coef = 0.0; // Не понятно, что это
+    double a = 0.3;
+    double b = 2.0;
 
     // Внутренние переменные
     const int num_splits = 100;
@@ -117,7 +119,8 @@ public:
         cout << "BESSE: prepare U" << endl;
         U = MatrixXcd::Zero(N + 1, M + 1);
         for (int x_idx = 0; x_idx < x.size(); x_idx++) {
-            U(0, x_idx) = 0.0; // TODO: Инициализация первого шага
+            double v0 = (x_start + x_stop) / 2.0;
+            U(0, x_idx) = a * exp(-(x(x_idx) - v0) * (x(x_idx) - v0) / (b * b));
         }
     }
 
@@ -139,6 +142,16 @@ public:
             }
             file.close();
         }
+    }
+
+    void write_square_abs_matrix_to_file(const MatrixXcd& src, const string& path_and_name) {
+        MatrixXd abs_matrix = MatrixXd::Zero(src.rows(), src.cols());
+        for (int t_idx = 0; t_idx < t.size(); t_idx++) {
+            for (int x_idx = 0; x_idx < x.size(); x_idx++) {
+                abs_matrix(t_idx, x_idx) = abs(src(t_idx, x_idx)) * abs(src(t_idx, x_idx));
+            }
+        }
+        write_matrix_to_file(abs_matrix, path_and_name);
     }
 
     void write_real_matrix_to_file(const MatrixXcd& src, const string& path_and_name) {
@@ -199,7 +212,7 @@ public:
         for (int power = 0; power <= 12; power++) {
             if (power % 2 == 0) {
                 for (int x_idx = 0; x_idx < x.size(); x_idx++) {
-                    phi_abs_minus[0](x_idx) = pow(abs(U(0, x_idx)), power);
+                    phi_abs_minus[power](x_idx) = pow(abs(U(0, x_idx)), power);
                 }
             }
         }
@@ -208,9 +221,11 @@ public:
         cout << "r: " << r << endl;
 
         for (int n = 0; n < N; n++) { // 0 -> N-1 / Считаем U от 1 до N
-            if (n % 10 == 0) {
+            //if (n % 10 == 0) {
                 cout << "BESSE: STEP " << n << "/" << N - 1 << endl;
-            }
+            //}
+
+            //cout << n << ": " << U.row(n) << endl;
 
             // Вычисление V_plus
             for (int power = 0; power <= 12; power++) {
@@ -221,8 +236,10 @@ public:
                         _tmp_vector2(x_idx) = 2.0 * pow(abs(U(n, x_idx)), power);
                     }
                     phi_abs_plus[power] = _tmp_vector1 + _tmp_vector2;
+                    //cout << power << " : "<< phi_abs_plus[power] << endl;
                 }
             }
+
 
             VectorXcd C = VectorXcd::Zero(M + 1);
             for (int x_idx = 0; x_idx < x.size(); x_idx++) {
@@ -240,6 +257,8 @@ public:
                 }
                 C(x_idx) = outer_sum;
             }
+            //cout << n << ": " << C << endl;
+
 
             VectorXcd B = VectorXcd::Zero(M + 1);
             for (int x_idx = 0; x_idx < x.size(); x_idx++) {
@@ -272,10 +291,10 @@ public:
             A_plus(M, M - 1) = complex<double>(1.0, 0.0);
             A_plus(M, M) = 2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(M);
             // Промежуточные строки
-            for (int m = 1; m < M; m++) {
-                A_plus(m, m - 1) = complex<double>(1.0, 0.0);
-                A_plus(m, m) = 2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(m);
-                A_plus(m, m + 1) = complex<double>(1.0, 0.0);
+            for (int m_idx = 1; m_idx < M; m_idx++) {
+                A_plus(m_idx, m_idx - 1) = complex<double>(1.0, 0.0);
+                A_plus(m_idx, m_idx) = 2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(m_idx);
+                A_plus(m_idx, m_idx + 1) = complex<double>(1.0, 0.0);
             }
             A_plus = r * A_plus;
 
@@ -289,24 +308,25 @@ public:
             A_minus(M, M - 1) = complex<double>(1.0, 0.0);
             A_minus(M, M) = -2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(M);
             // Промежуточные строки
-            for (int m = 1; m < M; m++) {
-                A_minus(m, m - 1) = complex<double>(1.0, 0.0);
-                A_minus(m, m) = -2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(m);
-                A_minus(m, m + 1) = complex<double>(1.0, 0.0);
+            for (int m_idx = 1; m_idx < M; m_idx++) {
+                A_minus(m_idx, m_idx - 1) = complex<double>(1.0, 0.0);
+                A_minus(m_idx, m_idx) = -2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(m_idx);
+                A_minus(m_idx, m_idx + 1) = complex<double>(1.0, 0.0);
             }
             A_minus = -r * A_minus;
 
-            MatrixXcd B_matrix = MatrixXcd::Zero(M + 1, M + 1);
-            for (int m = 0; m <= M; m++) {
-                B_matrix(m, m) = B(m);
-            }
+//            MatrixXcd B_matrix = MatrixXcd::Zero(M + 1, M + 1);
+//            for (int m = 0; m <= M; m++) {
+//                B_matrix(m, m) = B(m);
+//            }
 
-            _tmp_vector1 = U.row(n);
+            VectorXcd _tmp_vector1 = U.row(n);
             MatrixXcd _tmp_matrix1 = A_minus * _tmp_vector1;
-            _tmp_matrix1 += B_matrix;
+            //_tmp_matrix1 = _tmp_matrix1 + B_matrix;
             MatrixXcd _tmp_matrix2 = A_plus.inverse();
-            _tmp_vector2 = _tmp_matrix2 * _tmp_matrix1;
-            U.row(n + 1) = _tmp_vector2;
+            VectorXcd _tmp_vector2 = _tmp_matrix2 * _tmp_matrix1;
+            VectorXcd _tmp_vector3 = _tmp_matrix2 * B;
+            U.row(n + 1) = _tmp_vector2 + _tmp_vector3;
 
             // Следующий шаг
             phi_abs_minus = phi_abs_plus;
@@ -320,6 +340,7 @@ public:
         write_real_matrix_to_file(U, folder + "/real.txt");
         write_imag_matrix_to_file(U, folder + "/imag.txt");
         write_abs_matrix_to_file(U, folder + "/abs.txt");
+        write_square_abs_matrix_to_file(U, folder + "/abs_square.txt");
     }
 };
 
@@ -339,7 +360,7 @@ public:
 
 
 int main(){
-    Eigen::setNbThreads(4);
+    Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
     BesseHelper::compute_nush_analogue();
