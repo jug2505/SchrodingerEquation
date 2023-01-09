@@ -42,7 +42,7 @@ public:
     double b = 2.0;
 
     // Внутренние переменные
-    const int num_splits = 100;
+    const int num_splits = 20;
 
     static double factorial(const int n) {
         double f = 1;
@@ -274,7 +274,7 @@ public:
                         for (int l = 0; l <= 5; l++) {
                             inner_sum_2 += pow(-1.0, l) * pow(alpha, 2 * l + 2) * phi_abs_plus[2 * l + 2](x_idx) / (factorial(l) * factorial(l + 2) * pow(2, 2 * l + 2));
                         }
-                        middle_sum += G1(alpha, s) * (inner_sum_1 + inner_sum_2);
+                        middle_sum += G2(alpha, s) * (inner_sum_1 + inner_sum_2);
                     }
                     outer_sum += middle_sum;
                 }
