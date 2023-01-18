@@ -3,6 +3,7 @@
 #include <vector>
 #include <complex>
 #include <cmath>
+#include <map>
 
 #include <Eigen/Core>
 #include <Eigen/LU>
@@ -28,6 +29,10 @@ public:
     int N; // Количество разбиений по t
     double k = 0.0; // Шаг по t
 
+    // Кэш
+    map<pair<int, int>, double> G_alpha_s_cache;
+    map<pair<int, int>, double> delta_alpha_s_cache;
+
     // Коэффициенты новой задачи
     double m = 7.0;
     double gamma0 = 4.32e-12;
@@ -42,7 +47,7 @@ public:
     double b = 2.0;
 
     // Внутренние переменные
-    const int num_splits = 20;
+    const int num_splits = 100;
 
     static double factorial(const int n) {
         double f = 1;
@@ -50,7 +55,7 @@ public:
         return f;
     }
 
-    static double simpsonIntegral(double a, double b, int n, const std::function<double (double)> &f) {
+    static double simpsonIntegral(const double a, const double b, const int n, const std::function<double (double)> &f) {
         const double width = (b-a)/n;
         double simpson_integral = 0;
         for(int step = 0; step < n; step++) {
@@ -61,15 +66,24 @@ public:
         return simpson_integral;
     }
 
-    double eps(double p, double s) {
+    double eps(const double p, const double s) {
         return gamma0 * sqrt(1.0 + 4.0 * cos(p) * cos(M_PI * s / m) + 4.0 * cos(M_PI * s / m) * cos(M_PI * s / m));
     }
 
-    double delta(double alpha, double s) {
-        return simpsonIntegral(-M_PI, M_PI, num_splits, [alpha, this](double p) {return eps(p, alpha) * cos(p * alpha);}) / M_PI;
+    double delta(const int alpha, const int s) {
+        if (delta_alpha_s_cache.find({alpha, s}) != delta_alpha_s_cache.end()) {
+            return delta_alpha_s_cache[{alpha, s}];
+        }
+        double result = simpsonIntegral(-M_PI, M_PI, num_splits, [alpha, s, this](double p) {return eps(p, s) * cos(p * alpha);}) / M_PI;
+        delta_alpha_s_cache[{alpha, s}] = result;
+        return result;
     }
 
-    double G(double alpha, double s) {
+    double G(const int alpha, const int s) {
+        if (G_alpha_s_cache.find({alpha, s}) != G_alpha_s_cache.end()) {
+            return G_alpha_s_cache[{alpha, s}];
+        }
+
         double nominator = simpsonIntegral(-M_PI, M_PI, num_splits, [this, &s, &alpha](double r) {
             double sum = 0.0;
             for (int i = 1; i <= 9; i++) {
@@ -84,14 +98,17 @@ public:
             }
             return exp(-sum);
         });
-        return -alpha * delta(alpha, s) * nominator / (gamma0 * denominator);
+        double result = -alpha * delta(alpha, s) * nominator / (gamma0 * denominator);
+        G_alpha_s_cache[{alpha, s}] = result;
+        
+        return result;
     }
 
-    double G1(double alpha, double s) {
+    double G1(const int alpha, const int s) {
         return G(alpha, s) * cos(alpha * E0 * t_coef);
     }
 
-    double G2(double alpha, double s) {
+    double G2(const int alpha, const int s) {
         return G(alpha, s) * sin(alpha * E0 * t_coef);
     }
 
@@ -174,6 +191,18 @@ public:
         write_matrix_to_file(abs_matrix, path_and_name);
     }
 
+    void write_cache_to_file(map<pair<int, int>, double> map_cache, const string& path_and_name) {
+        cout << "BESSE: write cache matrix " << path_and_name << endl;
+        ofstream file(path_and_name, ios::out | ios::trunc);
+        if(file) {
+            file << "alpha s value" << endl;
+            for (auto const& [key, val] : map_cache) {
+                file << key.first << " " << key.second << " " << val << endl;
+            }
+            file.close();
+        }
+    }
+
     void compute() {
         cout << "BESSE: in compute" << endl;
 
@@ -221,9 +250,9 @@ public:
         cout << "r: " << r << endl;
 
         for (int n = 0; n < N; n++) { // 0 -> N-1 / Считаем U от 1 до N
-            //if (n % 10 == 0) {
+            if (n % 10 == 0) {
                 cout << "BESSE: STEP " << n << "/" << N - 1 << endl;
-            //}
+            }
 
             //cout << n << ": " << U.row(n) << endl;
 
@@ -341,6 +370,8 @@ public:
         write_imag_matrix_to_file(U, folder + "/imag.txt");
         write_abs_matrix_to_file(U, folder + "/abs.txt");
         write_square_abs_matrix_to_file(U, folder + "/abs_square.txt");
+        write_cache_to_file(G_alpha_s_cache, folder + "/G_alpha_s.txt");
+        write_cache_to_file(delta_alpha_s_cache, folder + "/delta_alpha_s.txt");
     }
 };
 
@@ -348,13 +379,13 @@ class BesseHelper {
 public:
     static void compute_nush_analogue() {
         unique_ptr<Besse> besse(new Besse);
-        besse->M = 100;
-        besse->N = 100;
+        besse->M = 500;
+        besse->N = 500;
         besse->t_start = 0.0;
         besse->t_stop = 5.0;
         besse->x_start = -M_PI;
         besse->x_stop = M_PI;
-        besse->solve("../data/nush_analogue");
+        besse->solve("../data/nush_analogue_500_500");
     }
 };
 
