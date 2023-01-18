@@ -91,13 +91,17 @@ public:
             }
             return cos(alpha * r) * exp(-sum);
         });
-        double denominator = simpsonIntegral(-M_PI, M_PI, num_splits, [this, &s, &alpha](double r) {
-            double sum = 0.0;
-            for (int i = 1; i <= 9; i++) {
-                sum += delta(i, s) * cos(i * r) / (Kb * T);
-            }
-            return exp(-sum);
-        });
+
+        double denominator = 0.0;
+        for (int s_idx = 1; s_idx <= 7; s_idx++) {
+            denominator += simpsonIntegral(-M_PI, M_PI, num_splits, [this, &s_idx, &alpha](double r) {
+                double sum = 0.0;
+                for (int i = 1; i <= 9; i++) {
+                    sum += delta(i, s_idx) * cos(i * r) / (Kb * T);
+                }
+                return exp(-sum);
+            });
+        }
         double result = -alpha * delta(alpha, s) * nominator / (gamma0 * denominator);
         G_alpha_s_cache[{alpha, s}] = result;
         
@@ -387,6 +391,17 @@ public:
         besse->x_stop = M_PI;
         besse->solve("../data/nush_analogue_500_500");
     }
+
+    static void compute_nush_analogue_1() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 500;
+        besse->N = 500;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = 0.0;
+        besse->x_stop = 30.0;
+        besse->solve("../data/nush_analogue_500_500_0_30");
+    }
 };
 
 
@@ -394,7 +409,7 @@ int main(){
     Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_nush_analogue();
+    BesseHelper::compute_nush_analogue_1();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
