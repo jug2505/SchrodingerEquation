@@ -47,7 +47,7 @@ public:
     double b = 2.0;
 
     // Внутренние переменные
-    const int num_splits = 100;
+    const int num_splits = 1000000;
 
     static double factorial(const int n) {
         double f = 1;
@@ -76,6 +76,7 @@ public:
         }
         double result = simpsonIntegral(-M_PI, M_PI, num_splits, [alpha, s, this](double p) {return eps(p, s) * cos(p * alpha);}) / M_PI;
         delta_alpha_s_cache[{alpha, s}] = result;
+        cout << "BESSE: delta_alpha_s alpha = " << alpha << ", s = " << s << " cached" << endl;
         return result;
     }
 
@@ -104,6 +105,7 @@ public:
         }
         double result = -alpha * delta(alpha, s) * nominator / (gamma0 * denominator);
         G_alpha_s_cache[{alpha, s}] = result;
+        cout << "BESSE: G_alpha_s alpha = " << alpha << ", s = " << s << " cached" << endl;
         
         return result;
     }
@@ -202,6 +204,23 @@ public:
             file << "alpha s value" << endl;
             for (auto const& [key, val] : map_cache) {
                 file << key.first << " " << key.second << " " << val << endl;
+            }
+            file.close();
+        }
+    }
+
+
+    void write_G_cache_sum_to_file(const string& path_and_name) {
+        cout << "BESSE: write G cache sum to " << path_and_name << endl;
+        ofstream file(path_and_name, ios::out | ios::trunc);
+        if(file) {
+            file << "alpha s_sum" << endl;
+            for (int alpha_idx = 1; alpha_idx <= 9; alpha_idx++){
+                double sum = 0.0;
+                for (int s_idx = 1; s_idx <= 7; s_idx++){
+                    sum += G_alpha_s_cache[{alpha_idx, s_idx}];
+                }
+                file << alpha_idx << " " << sum << endl;
             }
             file.close();
         }
@@ -376,6 +395,7 @@ public:
         write_square_abs_matrix_to_file(U, folder + "/abs_square.txt");
         write_cache_to_file(G_alpha_s_cache, folder + "/G_alpha_s.txt");
         write_cache_to_file(delta_alpha_s_cache, folder + "/delta_alpha_s.txt");
+        write_G_cache_sum_to_file(folder + "/G_alpha_s_sum.txt");
     }
 };
 
@@ -392,7 +412,7 @@ public:
         besse->solve("../data/nush_analogue_500_500");
     }
 
-    static void compute_nush_analogue_1() {
+    static void compute_nush_analogue_0_30_500() {
         unique_ptr<Besse> besse(new Besse);
         besse->M = 500;
         besse->N = 500;
@@ -402,6 +422,17 @@ public:
         besse->x_stop = 30.0;
         besse->solve("../data/nush_analogue_500_500_0_30");
     }
+
+    static void compute_nush_analogue_0_30_1000() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 1000;
+        besse->N = 1000;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = 0.0;
+        besse->x_stop = 30.0;
+        besse->solve("../data/nush_analogue_1000_1000_0_30");
+    }
 };
 
 
@@ -409,7 +440,7 @@ int main(){
     Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_nush_analogue_1();
+    BesseHelper::compute_nush_analogue_0_30_500();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
