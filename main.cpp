@@ -47,7 +47,7 @@ public:
     double b = 2.0;
 
     // Внутренние переменные
-    const int num_splits = 1000000;
+    const int num_splits = 100000;
 
     static double factorial(const int n) {
         double f = 1;
@@ -110,12 +110,12 @@ public:
         return result;
     }
 
-    double G1(const int alpha, const int s) {
-        return G(alpha, s) * cos(alpha * E0 * t_coef);
+    double G1(const int alpha, const int s, const double t_value) {
+        return G(alpha, s) * cos(alpha * E0 * t_value * 0.0001);
     }
 
-    double G2(const int alpha, const int s) {
-        return G(alpha, s) * sin(alpha * E0 * t_coef);
+    double G2(const int alpha, const int s, const double t_value) {
+        return G(alpha, s) * sin(alpha * E0 * t_value * 0.0001);
     }
 
     void prepare_x() {
@@ -303,7 +303,7 @@ public:
                         for (int l = 0; l <= 5; l++) {
                             inner_sum += pow(-1.0, l) * pow(alpha, 2 * l) * phi_abs_plus[2 * l](x_idx) / (factorial(l) * factorial(l + 1) * pow(2, 2 * l));
                         }
-                        middle_sum += G1(alpha, s) * inner_sum;
+                        middle_sum += G1(alpha, s, t(n + 1)) * inner_sum;
                     }
                     outer_sum += (double)alpha * middle_sum;
                 }
@@ -326,7 +326,7 @@ public:
                         for (int l = 0; l <= 5; l++) {
                             inner_sum_2 += pow(-1.0, l) * pow(alpha, 2 * l + 2) * phi_abs_plus[2 * l + 2](x_idx) / (factorial(l) * factorial(l + 2) * pow(2, 2 * l + 2));
                         }
-                        middle_sum += G2(alpha, s) * (inner_sum_1 + inner_sum_2);
+                        middle_sum += G2(alpha, s, t(n + 1)) * (inner_sum_1 + inner_sum_2);
                     }
                     outer_sum += middle_sum;
                 }
@@ -423,6 +423,30 @@ public:
         besse->solve("../data/nush_analogue_500_500_0_30");
     }
 
+    static void compute_nush_analogue_0_30_500_E0_1000() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 500;
+        besse->N = 500;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = 0.0;
+        besse->x_stop = 30.0;
+        besse->E0 = 1000.0;
+        besse->solve("../data/nush_analogue_500_500_0_30_E0_1000");
+    }
+
+    static void compute_nush_analogue_0_30_500_E0_10000() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 500;
+        besse->N = 500;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = 0.0;
+        besse->x_stop = 30.0;
+        besse->E0 = 10000.0;
+        besse->solve("../data/nush_analogue_500_500_0_30_E0_10000");
+    }
+
     static void compute_nush_analogue_0_30_1000() {
         unique_ptr<Besse> besse(new Besse);
         besse->M = 1000;
@@ -440,7 +464,7 @@ int main(){
     Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_nush_analogue_0_30_500();
+    BesseHelper::compute_nush_analogue_0_30_500_E0_1000();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
