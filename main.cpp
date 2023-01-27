@@ -48,6 +48,8 @@ public:
 
     // Внутренние переменные
     const int num_splits = 100000;
+    int write_t_splits = 5;
+    int current_t_split = 0;
 
     static double factorial(const int n) {
         double f = 1;
@@ -226,7 +228,23 @@ public:
         }
     }
 
-    void compute() {
+    void write_t_splits_to_file(const string& folder, int n) {
+        if (n != current_t_split * N / write_t_splits && n != N-1) return;
+        if (n == N-1) n = N;
+
+        ofstream file(folder + "/T=" + to_string(t(n)) + ".txt", ios::out | ios::trunc);
+        if(file) {
+            file << "X Z" << endl;
+            for (int x_idx = 0; x_idx < x.size(); x_idx++) {
+                file << x(x_idx) << " " << abs(U(n, x_idx)) * abs(U(n, x_idx)) << endl;
+            }
+            file.close();
+        }
+
+        current_t_split++;
+    }
+
+    void compute(const string& folder) {
         cout << "BESSE: in compute" << endl;
 
         vector<VectorXcd> phi_abs_minus = {
@@ -277,8 +295,6 @@ public:
                 cout << "BESSE: STEP " << n << "/" << N - 1 << endl;
             }
 
-            //cout << n << ": " << U.row(n) << endl;
-
             // Вычисление V_plus
             for (int power = 0; power <= 12; power++) {
                 if (power % 2 == 0) {
@@ -288,7 +304,6 @@ public:
                         _tmp_vector2(x_idx) = 2.0 * pow(abs(U(n, x_idx)), power);
                     }
                     phi_abs_plus[power] = _tmp_vector1 + _tmp_vector2;
-                    //cout << power << " : "<< phi_abs_plus[power] << endl;
                 }
             }
 
@@ -309,8 +324,6 @@ public:
                 }
                 C(x_idx) = outer_sum;
             }
-            //cout << n << ": " << C << endl;
-
 
             VectorXcd B = VectorXcd::Zero(M + 1);
             for (int x_idx = 0; x_idx < x.size(); x_idx++) {
@@ -335,42 +348,37 @@ public:
 
             MatrixXcd A_plus = MatrixXcd::Zero(M + 1, M + 1);
             // Первая строка
-            A_plus(0, 0) = 2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(0);
+            A_plus(0, 0) = chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(0);
             A_plus(0, 1) =  complex<double>(1.0, 0.0);
             A_plus(0, M) = complex<double>(1.0, 0.0);
             // Последняя строка
             A_plus(M, 0) = complex<double>(1.0, 0.0);
             A_plus(M, M - 1) = complex<double>(1.0, 0.0);
-            A_plus(M, M) = 2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(M);
+            A_plus(M, M) = chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(M);
             // Промежуточные строки
             for (int m_idx = 1; m_idx < M; m_idx++) {
                 A_plus(m_idx, m_idx - 1) = complex<double>(1.0, 0.0);
-                A_plus(m_idx, m_idx) = 2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(m_idx);
+                A_plus(m_idx, m_idx) = chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(m_idx);
                 A_plus(m_idx, m_idx + 1) = complex<double>(1.0, 0.0);
             }
             A_plus = r * A_plus;
 
             MatrixXcd A_minus = MatrixXcd::Zero(M + 1, M + 1);
             // Первая строка
-            A_minus(0, 0) = -2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(0);
+            A_minus(0, 0) = -chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(0);
             A_minus(0, 1) = complex<double>(1.0, 0.0);
             A_minus(0, M) = complex<double>(1.0, 0.0);
             // Последняя строка
             A_minus(M, 0) = complex<double>(1.0, 0.0);
             A_minus(M, M - 1) = complex<double>(1.0, 0.0);
-            A_minus(M, M) = -2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(M);
+            A_minus(M, M) = -chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(M);
             // Промежуточные строки
             for (int m_idx = 1; m_idx < M; m_idx++) {
                 A_minus(m_idx, m_idx - 1) = complex<double>(1.0, 0.0);
-                A_minus(m_idx, m_idx) = -2.0 * chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(m_idx);
+                A_minus(m_idx, m_idx) = -chi * complex<double>(0.0, 1.0) / r - 2.0 - h * h * C(m_idx);
                 A_minus(m_idx, m_idx + 1) = complex<double>(1.0, 0.0);
             }
             A_minus = -r * A_minus;
-
-//            MatrixXcd B_matrix = MatrixXcd::Zero(M + 1, M + 1);
-//            for (int m = 0; m <= M; m++) {
-//                B_matrix(m, m) = B(m);
-//            }
 
             VectorXcd _tmp_vector1 = U.row(n);
             MatrixXcd _tmp_matrix1 = A_minus * _tmp_vector1;
@@ -382,13 +390,15 @@ public:
 
             // Следующий шаг
             phi_abs_minus = phi_abs_plus;
+
+            write_t_splits_to_file(folder, n);
         }
     }
 
     void solve(const string& folder) {
         cout << "BESSE: in solve" << endl;
         init();
-        compute();
+        compute(folder);
         write_real_matrix_to_file(U, folder + "/real.txt");
         write_imag_matrix_to_file(U, folder + "/imag.txt");
         write_abs_matrix_to_file(U, folder + "/abs.txt");
@@ -423,30 +433,6 @@ public:
         besse->solve("../data/nush_analogue_500_500_0_30");
     }
 
-    static void compute_nush_analogue_0_30_500_E0_1000() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 1000.0;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_1000");
-    }
-
-    static void compute_nush_analogue_0_30_500_E0_10000() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 10000.0;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_10000");
-    }
-
     static void compute_nush_analogue_0_30_1000() {
         unique_ptr<Besse> besse(new Besse);
         besse->M = 1000;
@@ -457,6 +443,31 @@ public:
         besse->x_stop = 30.0;
         besse->solve("../data/nush_analogue_1000_1000_0_30");
     }
+
+    static void compute_nush_analogue_0_30_500_E0_50() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 500;
+        besse->N = 500;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = 0.0;
+        besse->x_stop = 30.0;
+        besse->E0 = 50.0;
+        besse->solve("../data/nush_analogue_500_500_0_30_E0_50");
+    }
+
+    static void compute_nush_analogue_0_30_500_E0_25() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 500;
+        besse->N = 500;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = 0.0;
+        besse->x_stop = 30.0;
+        besse->E0 = 25.0;
+        besse->solve("../data/nush_analogue_500_500_0_30_E0_25");
+    }
+
 };
 
 
@@ -464,7 +475,8 @@ int main(){
     Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_nush_analogue_0_30_500_E0_1000();
+    BesseHelper::compute_nush_analogue_0_30_500_E0_50();
+    BesseHelper::compute_nush_analogue_0_30_500_E0_25();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
