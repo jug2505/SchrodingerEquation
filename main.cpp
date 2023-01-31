@@ -576,6 +576,42 @@ public:
         besse->solve("../data/nush_analogue_500_500_0_30_E0_10");
     }
 
+    static void compute_nush_analogue_PI_250_E0_10() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 250;
+        besse->N = 250;
+        besse->t_start = 0;
+        besse->t_stop = 5;
+        besse->x_start = -M_PI;
+        besse->x_stop = M_PI;
+        besse->E0 = 10.0;
+        besse->solve("../data/nush_analogue_250_PI_E0_10");
+    }
+
+    static void compute_nush_analogue_PI_500_E0_10() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 500;
+        besse->N = 500;
+        besse->t_start = 0;
+        besse->t_stop = 5;
+        besse->x_start = -M_PI;
+        besse->x_stop = M_PI;
+        besse->E0 = 10.0;
+        besse->solve("../data/nush_analogue_500_PI_E0_10");
+    }
+
+    static void compute_nush_analogue_PI_750_E0_10() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 750;
+        besse->N = 750;
+        besse->t_start = 0;
+        besse->t_stop = 5;
+        besse->x_start = -M_PI;
+        besse->x_stop = M_PI;
+        besse->E0 = 10.0;
+        besse->solve("../data/nush_analogue_750_PI_E0_10");
+    }
+
 };
 
 
@@ -583,9 +619,9 @@ int main(){
     Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_nush_analogue_0_30_250_E0_1();
-    BesseHelper::compute_nush_analogue_0_30_500_E0_1();
-    BesseHelper::compute_nush_analogue_0_30_750_E0_1();
+    BesseHelper::compute_nush_analogue_PI_250_E0_10();
+    BesseHelper::compute_nush_analogue_PI_500_E0_10();
+    BesseHelper::compute_nush_analogue_PI_750_E0_10();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
