@@ -1,0 +1,1 @@
+Bi-Soliton M=1000 N=1000 t_coef = [0, 10] x = [-4pi, 4pi]

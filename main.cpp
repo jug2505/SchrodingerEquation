@@ -42,13 +42,12 @@ public:
     double omega0 = 1.0e14;
     double Kb = 1.38e-16;
     double T = 77.0;
-    double t_coef = 0.0; // Не понятно, что это
     double a = 0.3;
     double b = 2.0;
 
     // Внутренние переменные
     const int num_splits = 100000;
-    int write_t_splits = 5;
+    int write_t_splits = 4;
     int current_t_split = 0;
 
     static double factorial(const int n) {
@@ -173,7 +172,7 @@ public:
         MatrixXd abs_matrix = MatrixXd::Zero(src.rows(), src.cols());
         for (int t_idx = 0; t_idx < t.size(); t_idx++) {
             for (int x_idx = 0; x_idx < x.size(); x_idx++) {
-                abs_matrix(t_idx, x_idx) = abs(src(t_idx, x_idx)) * abs(src(t_idx, x_idx));
+                abs_matrix(t_idx, x_idx) = abs(src(t_idx, x_idx)) * abs(src(t_idx, x_idx)) / (a * a);
             }
         }
         write_matrix_to_file(abs_matrix, path_and_name);
@@ -199,7 +198,7 @@ public:
         write_matrix_to_file(abs_matrix, path_and_name);
     }
 
-    void write_cache_to_file(map<pair<int, int>, double> map_cache, const string& path_and_name) {
+    void write_cache_to_file(const map<pair<int, int>, double>& map_cache, const string& path_and_name) {
         cout << "BESSE: write cache matrix " << path_and_name << endl;
         ofstream file(path_and_name, ios::out | ios::trunc);
         if(file) {
@@ -210,7 +209,6 @@ public:
             file.close();
         }
     }
-
 
     void write_G_cache_sum_to_file(const string& path_and_name) {
         cout << "BESSE: write G cache sum to " << path_and_name << endl;
@@ -236,12 +234,31 @@ public:
         if(file) {
             file << "X Z" << endl;
             for (int x_idx = 0; x_idx < x.size(); x_idx++) {
-                file << x(x_idx) << " " << abs(U(n, x_idx)) * abs(U(n, x_idx)) << endl;
+                file << x(x_idx) << " " << abs(U(n, x_idx)) * abs(U(n, x_idx)) / (a * a) << endl;
             }
             file.close();
         }
 
         current_t_split++;
+    }
+
+    void write_beam_width_to_file(const string& path_and_name) {
+        ofstream file(path_and_name, ios::out | ios::trunc);
+        if(file) {
+            file << "z d" << endl;
+            for (int t_idx = 0; t_idx < t.size(); t_idx++) {
+                long x_idx = x.size() % 2 == 0 ? x.size() / 2 : x.size() / 2 + 1;
+                double middle_value = abs(U(t_idx,x_idx)) * abs(U(t_idx,x_idx)) / (a * a);
+                x_idx++;
+                double next_value = abs(U(t_idx,x_idx)) * abs(U(t_idx,x_idx)) / (a * a);
+                while (next_value * 2.0 > middle_value) {
+                    x_idx++;
+                    next_value = abs(U(t_idx,x_idx)) * abs(U(t_idx,x_idx)) / (a * a);
+                }
+                file << t(t_idx) << " " << x(x_idx) << endl;
+            }
+            file.close();
+        }
     }
 
     void compute(const string& folder) {
@@ -399,219 +416,30 @@ public:
         cout << "BESSE: in solve" << endl;
         init();
         compute(folder);
-        write_real_matrix_to_file(U, folder + "/real.txt");
-        write_imag_matrix_to_file(U, folder + "/imag.txt");
-        write_abs_matrix_to_file(U, folder + "/abs.txt");
+        //write_real_matrix_to_file(U, folder + "/real.txt");
+        //write_imag_matrix_to_file(U, folder + "/imag.txt");
+        //write_abs_matrix_to_file(U, folder + "/abs.txt");
         write_square_abs_matrix_to_file(U, folder + "/abs_square.txt");
         write_cache_to_file(G_alpha_s_cache, folder + "/G_alpha_s.txt");
         write_cache_to_file(delta_alpha_s_cache, folder + "/delta_alpha_s.txt");
         write_G_cache_sum_to_file(folder + "/G_alpha_s_sum.txt");
+        write_beam_width_to_file(folder + "/beam_width.txt");
     }
 };
 
 class BesseHelper {
 public:
-    static void compute_nush_analogue() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 5.0;
-        besse->x_start = -M_PI;
-        besse->x_stop = M_PI;
-        besse->solve("../data/nush_analogue_500_500");
-    }
-
-    static void compute_nush_analogue_0_30_500() {
+    static void compute_nush_analogue_500_E0_0() {
         unique_ptr<Besse> besse(new Besse);
         besse->M = 500;
         besse->N = 500;
         besse->t_start = 0.0;
         besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->solve("../data/nush_analogue_500_500_0_30");
+        besse->x_start = -15.0;
+        besse->x_stop = 15.0;
+        besse->E0 = 0.0;
+        besse->solve("../data/nush_analogue_500_E0_0");
     }
-
-    static void compute_nush_analogue_0_30_1000() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->solve("../data/nush_analogue_1000_1000_0_30");
-    }
-
-    static void compute_nush_analogue_0_30_500_E0_50() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 50.0;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_50");
-    }
-
-    static void compute_nush_analogue_0_30_500_E0_25() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 25.0;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_25");
-    }
-
-    static void compute_nush_analogue_0_30_250_E0_1() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 250;
-        besse->N = 250;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 1.0;
-        besse->solve("../data/nush_analogue_250_250_0_30_E0_1");
-    }
-
-    static void compute_nush_analogue_0_30_500_E0_1() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 1.0;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_1");
-    }
-
-    static void compute_nush_analogue_0_30_750_E0_1() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 750;
-        besse->N = 750;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 1.0;
-        besse->solve("../data/nush_analogue_750_750_0_30_E0_1");
-    }
-
-    static void compute_nush_analogue_0_30_500_E0_01() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 0.1;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_01");
-    }
-
-    static void compute_nush_analogue_0_30_250_E0_5() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 250;
-        besse->N = 250;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 5.0;
-        besse->solve("../data/nush_analogue_250_250_0_30_E0_5");
-    }
-
-    static void compute_nush_analogue_0_30_500_E0_5() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 5.0;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_5");
-    }
-
-    static void compute_nush_analogue_0_30_1000_E0_5() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 5.0;
-        besse->solve("../data/nush_analogue_1000_1000_0_30_E0_5");
-    }
-
-    static void compute_nush_analogue_0_30_500_E0_3() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 3.0;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_3");
-    }
-
-    static void compute_nush_analogue_0_30_500_E0_10() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = 0.0;
-        besse->x_stop = 30.0;
-        besse->E0 = 10.0;
-        besse->solve("../data/nush_analogue_500_500_0_30_E0_10");
-    }
-
-    static void compute_nush_analogue_PI_250_E0_10() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 250;
-        besse->N = 250;
-        besse->t_start = 0;
-        besse->t_stop = 5;
-        besse->x_start = -M_PI;
-        besse->x_stop = M_PI;
-        besse->E0 = 10.0;
-        besse->solve("../data/nush_analogue_250_PI_E0_10");
-    }
-
-    static void compute_nush_analogue_PI_500_E0_10() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
-        besse->t_start = 0;
-        besse->t_stop = 5;
-        besse->x_start = -M_PI;
-        besse->x_stop = M_PI;
-        besse->E0 = 10.0;
-        besse->solve("../data/nush_analogue_500_PI_E0_10");
-    }
-
-    static void compute_nush_analogue_PI_750_E0_10() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 750;
-        besse->N = 750;
-        besse->t_start = 0;
-        besse->t_stop = 5;
-        besse->x_start = -M_PI;
-        besse->x_stop = M_PI;
-        besse->E0 = 10.0;
-        besse->solve("../data/nush_analogue_750_PI_E0_10");
-    }
-
 };
 
 
@@ -619,9 +447,7 @@ int main(){
     Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_nush_analogue_PI_250_E0_10();
-    BesseHelper::compute_nush_analogue_PI_500_E0_10();
-    BesseHelper::compute_nush_analogue_PI_750_E0_10();
+    BesseHelper::compute_nush_analogue_500_E0_0();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);

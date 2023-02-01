@@ -1,1 +1,0 @@
-Bi-Soliton M=500 N=500 t_coef = [-5, 5] x = [-3pi, 3pi]
