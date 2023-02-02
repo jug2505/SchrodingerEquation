@@ -429,16 +429,16 @@ public:
 
 class BesseHelper {
 public:
-    static void compute_nush_analogue_500_E0_0() {
+    static void compute_nush_analogue_1000_E0_0() {
         unique_ptr<Besse> besse(new Besse);
-        besse->M = 500;
-        besse->N = 500;
+        besse->M = 1000;
+        besse->N = 1000;
         besse->t_start = 0.0;
         besse->t_stop = 30.0;
         besse->x_start = -15.0;
         besse->x_stop = 15.0;
         besse->E0 = 0.0;
-        besse->solve("../data/nush_analogue_500_E0_0");
+        besse->solve("../data/nush_analogue_1000_E0_0");
     }
 };
 
@@ -447,7 +447,7 @@ int main(){
     Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_nush_analogue_500_E0_0();
+    BesseHelper::compute_nush_analogue_1000_E0_0();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
