@@ -9,6 +9,7 @@
 #include <Eigen/LU>
 #include <fstream>
 #include <memory>
+#include <filesystem>
 
 using namespace std;
 using namespace Eigen;
@@ -413,6 +414,7 @@ public:
 
     void solve(const string& folder) {
         cout << "BESSE: in solve" << endl;
+        filesystem::create_directory(folder);
         init();
         compute(folder);
         //write_real_matrix_to_file(U, folder + "/real.txt");
