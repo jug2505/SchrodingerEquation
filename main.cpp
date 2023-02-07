@@ -399,10 +399,9 @@ public:
 
             VectorXcd _tmp_vector1 = U.row(n);
             MatrixXcd _tmp_matrix1 = A_minus * _tmp_vector1;
-            //_tmp_matrix1 = _tmp_matrix1 + B_matrix;
-            MatrixXcd _tmp_matrix2 = A_plus.inverse();
-            VectorXcd _tmp_vector2 = _tmp_matrix2 * _tmp_matrix1;
-            VectorXcd _tmp_vector3 = _tmp_matrix2 * B;
+            PartialPivLU<MatrixXcd> lu(A_plus);
+            VectorXcd _tmp_vector2 = lu.solve(_tmp_matrix1);
+            VectorXcd _tmp_vector3 = lu.solve(B);
             U.row(n + 1) = _tmp_vector2 + _tmp_vector3;
 
             // Следующий шаг
