@@ -45,11 +45,14 @@ public:
     double T = 77.0;
     double a = 0.3;
     double b = 2.0;
+    double F = 0.0;
+    double F0 = 1.0;
 
     // Внутренние переменные
     const int num_splits = 100000;
     int write_t_splits = 4;
     int current_t_split = 0;
+    double previous_beam_width = 0.0;
 
     static double factorial(const int n) {
         double f = 1;
@@ -69,7 +72,7 @@ public:
     }
 
     double eps(const double p, const double s) {
-        return gamma0 * sqrt(1.0 + 4.0 * cos(p) * cos(M_PI * s / m) + 4.0 * cos(M_PI * s / m) * cos(M_PI * s / m));
+        return gamma0 * sqrt(1.0 + 4.0 * cos(p) * cos(M_PI * (s + F/F0) / m) + 4.0 * cos(M_PI * (s + F/F0) / m) * cos(M_PI * (s + F/F0) / m));
     }
 
     double delta(const int alpha, const int s) {
@@ -256,7 +259,9 @@ public:
                     x_idx++;
                     next_value = abs(U(t_idx,x_idx)) * abs(U(t_idx,x_idx)) / (a * a);
                 }
-                file << t(t_idx) << " " << x(x_idx) << endl;
+                if (previous_beam_width != x(x_idx) || t_idx == t.size() - 1) {
+                    file << t(t_idx) << " " << x(x_idx) << endl;
+                }
             }
             file.close();
         }
@@ -477,6 +482,48 @@ public:
         besse->E0 = 0.5;
         besse->solve("../data/nush_analogue_1000_E0_05");
     }
+
+    static void compute_nush_analogue_1000_FF0_m4() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 1000;
+        besse->N = 1000;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = -15.0;
+        besse->x_stop = 15.0;
+        besse->E0 = 0.0;
+        besse->F = besse->m;
+        besse->F0 = 4.0;
+        besse->solve("../data/nush_analogue_1000_FF0_m4");
+    }
+
+    static void compute_nush_analogue_1000_FF0_m3() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 1000;
+        besse->N = 1000;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = -15.0;
+        besse->x_stop = 15.0;
+        besse->E0 = 0.0;
+        besse->F = besse->m;
+        besse->F0 = 3.0;
+        besse->solve("../data/nush_analogue_1000_FF0_m3");
+    }
+
+    static void compute_nush_analogue_1000_FF0_m2() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 1000;
+        besse->N = 1000;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = -15.0;
+        besse->x_stop = 15.0;
+        besse->E0 = 0.0;
+        besse->F = besse->m;
+        besse->F0 = 2.0;
+        besse->solve("../data/nush_analogue_1000_FF0_m2");
+    }
 };
 
 
@@ -484,7 +531,9 @@ int main(){
     Eigen::setNbThreads(6);
     auto begin = chrono::steady_clock::now();
 
-    BesseHelper::compute_nush_analogue_1000_E0_05();
+    BesseHelper::compute_nush_analogue_1000_FF0_m4();
+    BesseHelper::compute_nush_analogue_1000_FF0_m3();
+    BesseHelper::compute_nush_analogue_1000_FF0_m2();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
