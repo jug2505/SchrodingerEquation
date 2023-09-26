@@ -2,6 +2,7 @@
 #include <fstream>
 #include <cmath>
 #include <vector>
+#include <chrono>
 
 using namespace std;
 
@@ -110,9 +111,10 @@ vector<double> probeDensity(vector<double> x, double m, double h, vector<double>
 }
 
 int main() {
+    auto begin = chrono::steady_clock::now();
     // i d_t psi + nabla^2/2 psi -x^2 psi/2 = 0
     // Потенциал: 1/2 x^2
-    int n = 100;  // Кол-во частиц
+    int n = 500;  // Кол-во частиц
     double dt = 0.02;  // Шаг по времени
     int nt = 100;  // Кол-во шагов по времени
     int nt_setup = 400;  // Кол-во шагов на настройку
@@ -191,7 +193,9 @@ int main() {
             outfile.close();
         }
     }
-
+    auto end = chrono::steady_clock::now();
+    auto elapsed_m = std::chrono::duration_cast<chrono::seconds>(end - begin);
+    cout << "Время работы: " << elapsed_m.count() << " секунд" << endl;
 
     return 0;
 }
