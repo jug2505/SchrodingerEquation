@@ -6,6 +6,7 @@
 using namespace std;
 using namespace Eigen;
 
+
 /* Гауссово сглаживающее ядро SPH (1D).
  * Вход: расстояния r, длина сглаживания h, порядок производной
  */
@@ -229,6 +230,7 @@ int main() {
     }
     outfile.close();
     outfile_exact.close();
+
 
     return 0;
 }
