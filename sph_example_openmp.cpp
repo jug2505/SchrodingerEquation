@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <omp.h>
 
 #include <Eigen/Core>
 
@@ -48,6 +49,8 @@ VectorXd kernel(VectorXd r, double h, int deriv) {
 VectorXd density(VectorXd x, double m, double h) {
     int n = x.size();
     VectorXd rho = VectorXd::Zero(n);
+
+    #pragma omp parallel for
     for (int i = 0; i < n; i++) {
         VectorXd uij = x(i) - x.array();
         VectorXd rho_ij = m * kernel(uij, h, 0);
@@ -66,6 +69,7 @@ VectorXd pressure(VectorXd x, VectorXd rho, double m, double h) {
     VectorXd ddrho = VectorXd::Zero(n);
     VectorXd P = VectorXd::Zero(n);
 
+    #pragma omp parallel for
     for (int i = 0; i < n; i++) {
         VectorXd uij = x(i) - x.array();
         VectorXd drho_ij = m * kernel(uij, h, 1);
@@ -74,6 +78,7 @@ VectorXd pressure(VectorXd x, VectorXd rho, double m, double h) {
         ddrho(i) = ddrho_ij.sum();
     }
 
+    #pragma omp parallel for
     for (int i = 0; i < n; i++) {
         VectorXd uij = x(i) - x.array();
         VectorXd P_ij = 0.25 * (drho.array() * drho.array() / rho.array() - ddrho.array()) * m / rho.array() * kernel(uij, h, 0).array();
@@ -105,6 +110,7 @@ VectorXd acceleration(VectorXd x, VectorXd u, double m, VectorXd rho, VectorXd P
     int n = x.size();
     VectorXd a = VectorXd::Zero(n);
 
+    #pragma omp parallel for
     for (int i = 0; i < n; i++) {
         // Дэмпирование и гармонический потенциал (0.5 x^2)
         a(i) = a(i) - u(i) * b - x(i);
@@ -133,6 +139,7 @@ VectorXd probeDensity(VectorXd x, double m, double h, VectorXd xx) {
     int nxx = xx.size();
     VectorXd rr = VectorXd::Zero(nxx);
 
+    #pragma omp parallel for
     for (int i = 0; i < nxx; i++) {
         VectorXd uij = xx(i) - x.array();
         VectorXd rho_ij = m * kernel(uij, h, 0);
@@ -144,12 +151,14 @@ VectorXd probeDensity(VectorXd x, double m, double h, VectorXd xx) {
 
 
 int main() {
+    omp_set_dynamic(0);
+    omp_set_num_threads(4);
     auto begin = chrono::steady_clock::now();
 
 
     // i d_t psi + nabla^2/2 psi -x^2 psi/2 = 0
     // Потенциал: 1/2 x^2
-    int n = 400;  // Кол-во частиц
+    int n = 200;  // Кол-во частиц
     double dt = 0.0001;  // Шаг по времени
     int nt = 100;  // Кол-во шагов по времени
     int nt_setup = 50000;  // Кол-во шагов на настройку
@@ -179,10 +188,10 @@ int main() {
     // v в t=-0.5*dt для leap frog интегратора
     VectorXd u_mhalf = u - 0.5 * dt * a;
 
-    ofstream outfile("solution.txt");
+    ofstream outfile("solution_omp.txt");
     outfile << "X Z" << endl;
 
-    ofstream outfile_exact("solution_exact.txt");
+    ofstream outfile_exact("solution_exact_omp.txt");
     outfile_exact << "X Z" << endl;
 
     // Главный цикл по времени

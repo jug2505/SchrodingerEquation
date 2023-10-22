@@ -8,5 +8,6 @@ set(CMAKE_BUILD_TYPE Release)
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(OpenMP REQUIRED)
 
-add_executable(SchrodingerEquation main.cpp)
+#add_executable(SchrodingerEquation sph_example_openmp.cpp)
+add_executable(SchrodingerEquation sph_example_linear.cpp)
 target_link_libraries (SchrodingerEquation PUBLIC OpenMP::OpenMP_CXX Eigen3::Eigen )
