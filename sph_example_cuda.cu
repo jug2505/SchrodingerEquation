@@ -22,10 +22,11 @@ static void HandleError(cudaError_t err, const char* file, int line) {
 }
 #define HANDLE_ERROR(err) (HandleError(err, __FILE__, __LINE__ ))
 
-#define BLOCK_SIZE 1024
+#define BLOCK_SIZE 32
 
 
 double* x_dev;
+double* xx_dev;
 double* rho_dev;
 double* drho_dev;
 double* ddrho_dev;
@@ -37,6 +38,7 @@ int n = 100;  // Кол-во частиц
 
 void init() {
     HANDLE_ERROR(cudaMalloc(&x_dev, n * sizeof(double)));
+    HANDLE_ERROR(cudaMalloc(&xx_dev, n * sizeof(double)));
     HANDLE_ERROR(cudaMalloc(&rho_dev, n * sizeof(double)));
     HANDLE_ERROR(cudaMalloc(&drho_dev, n * sizeof(double)));
     HANDLE_ERROR(cudaMalloc(&ddrho_dev, n * sizeof(double)));
@@ -47,6 +49,7 @@ void init() {
 
 void clear() {
     HANDLE_ERROR(cudaFree(x_dev));
+    HANDLE_ERROR(cudaFree(xx_dev));
     HANDLE_ERROR(cudaFree(rho_dev));
     HANDLE_ERROR(cudaFree(drho_dev));
     HANDLE_ERROR(cudaFree(ddrho_dev));
@@ -58,35 +61,6 @@ void clear() {
 /* Гауссово сглаживающее ядро SPH (1D).
  * Вход: расстояния r, длина сглаживания h, порядок производной
  */
-__host__ __device__ VectorXd kernel(VectorXd r, double h, int deriv) {
-    int n = r.size();
-    VectorXd weights = VectorXd::Zero(n);
-
-    switch (deriv) {
-        case 0:
-            for (int i = 0; i < n; i++) {
-                weights(i) = pow(h, -1) / sqrt(M_PI) * exp(-pow(r(i), 2) / pow(h, 2));
-            }
-            break;
-        case 1:
-            for (int i = 0; i < n; i++) {
-                weights(i) = pow(h, -3) / sqrt(M_PI) * exp(-pow(r(i), 2) / pow(h, 2)) * (-2.0 * r(i));
-            }
-            break;
-        case 2:
-            for (int i = 0; i < n; i++) {
-                weights(i) = pow(h, -5) / sqrt(M_PI) * exp(-pow(r(i), 2) / pow(h, 2)) * (4.0 * pow(r(i), 2) - 2.0 * pow(h, 2));
-            }
-            break;
-        case 3:
-            for (int i = 0; i < n; i++) {
-                weights(i) = pow(h, -7) / sqrt(M_PI) * exp(-pow(r(i), 2) / pow(h, 2)) * (-8.0 * pow(r(i), 3) + 12.0 * pow(h, 2) * r(i));
-            }
-            break;
-    }
-    return weights;
-}
-
 __host__ __device__ VectorXd kernelDeriv0(VectorXd r, double h) {
     int n = r.size();
     VectorXd weights = VectorXd::Zero(n);
@@ -96,6 +70,10 @@ __host__ __device__ VectorXd kernelDeriv0(VectorXd r, double h) {
     }
 
     return weights;
+}
+
+__host__ __device__ double kernelDeriv0(double r, double h) {
+    return pow(h, -1) / sqrt(M_PI) * exp(-pow(r, 2) / pow(h, 2));
 }
 
 __host__ __device__ VectorXd kernelDeriv1(VectorXd r, double h) {
@@ -109,6 +87,10 @@ __host__ __device__ VectorXd kernelDeriv1(VectorXd r, double h) {
     return weights;
 }
 
+__host__ __device__ double kernelDeriv1(double r, double h) {
+    return pow(h, -3) / sqrt(M_PI) * exp(-pow(r, 2) / pow(h, 2)) * (-2.0 * r);
+}
+
 __host__ __device__ VectorXd kernelDeriv2(VectorXd r, double h) {
     int n = r.size();
     VectorXd weights = VectorXd::Zero(n);
@@ -118,6 +100,10 @@ __host__ __device__ VectorXd kernelDeriv2(VectorXd r, double h) {
     }
 
     return weights;
+}
+
+__host__ __device__ double kernelDeriv2(double r, double h) {
+    return pow(h, -5) / sqrt(M_PI) * exp(-pow(r, 2) / pow(h, 2)) * (4.0 * pow(r, 2) - 2.0 * pow(h, 2));
 }
 
 __host__ __device__ VectorXd kernelDeriv3(VectorXd r, double h) {
@@ -131,14 +117,18 @@ __host__ __device__ VectorXd kernelDeriv3(VectorXd r, double h) {
     return weights;
 }
 
-__global__ void densityKernel(double* x, double* rho, double m, double h, int n) {
+__global__ void densityKernel(double* x, double m, double h, int n, double* rho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
-    VectorXd xVec = Map<VectorXd>(x, n);
-    VectorXd uij = xVec(i) - xVec.array();
-    VectorXd rho_ij = m * kernelDeriv0(uij, h);
-    rho[i] = rho_ij.sum();
+    double sum = 0.0;
+    double x_i = x[i];
+    double uij = 0.0;
+    for (int j = 0; j < n; j++) {
+        uij = x_i - x[j];
+        sum += m * kernelDeriv0(uij, h);
+    }
+    rho[i] = sum;
 }
 
 /* Вычисление плотности в каждом из мест расположения частиц с помощью сглаживающего ядра
@@ -153,45 +143,53 @@ __host__ VectorXd density(VectorXd x, double m, double h) {
     int blockSize = BLOCK_SIZE;
     int gridSize = (n + blockSize - 1) / blockSize;
 
-    densityKernel<<<gridSize, blockSize>>>(x_dev, rho_dev, m, h, n);
+    densityKernel<<<gridSize, blockSize>>>(x_dev, m, h, n, rho_dev);
 
     HANDLE_ERROR(cudaMemcpy(rho.data(), rho_dev, n * sizeof(double), cudaMemcpyDeviceToHost));
 
     return rho;
 }
 
-__global__ void pressureKernelDRho(double* x, double* drho, double m, double h, int n) {
+__global__ void pressureKernelDRho(double* x, double m, double h, int n, double* drho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
-    VectorXd xVec = Map<VectorXd>(x, n);
-    VectorXd uij = xVec(i) - xVec.array();
-    VectorXd drho_ij = m * kernelDeriv1(uij, h);
-    drho[i] = drho_ij.sum();
+    double sum = 0.0;
+    double x_i = x[i];
+    double uij = 0.0;
+    for (int j = 0; j < n; j++) {
+        uij = x_i - x[j];
+        sum += m * kernelDeriv1(uij, h);
+    }
+    drho[i] = sum;
 }
 
-__global__ void pressureKernelDDRho(double* x, double* ddrho, double m, double h, int n) {
+__global__ void pressureKernelDDRho(double* x, double m, double h, int n, double* ddrho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
-    VectorXd xVec = Map<VectorXd>(x, n);
-    VectorXd uij = xVec(i) - xVec.array();
-    VectorXd ddrho_ij = m * kernelDeriv2(uij, h);
-    ddrho[i] = ddrho_ij.sum();
+    double sum = 0.0;
+    double x_i = x[i];
+    double uij = 0.0;
+    for (int j = 0; j < n; j++) {
+        uij = x_i - x[j];
+        sum += m * kernelDeriv2(uij, h);
+    }
+    ddrho[i] = sum;
 }
 
-__global__ void pressureKernel(double* x, double* P, double* rho, double* drho, double* ddrho, double m, double h, int n) {
+__global__ void pressureKernel(double* x, double* rho, double* drho, double* ddrho, double m, double h, int n, double* P) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
-    VectorXd xVec = Map<VectorXd>(x, n);
-    VectorXd rhoVec = Map<VectorXd>(rho, n);
-    VectorXd drhoVec = Map<VectorXd>(drho, n);
-    VectorXd ddrhoVec = Map<VectorXd>(ddrho, n);
-
-    VectorXd uij = xVec(i) - xVec.array();
-    VectorXd P_ij = 0.25 * (drhoVec.array() * drhoVec.array() / rhoVec.array() - ddrhoVec.array()) * m / rhoVec.array() * kernelDeriv0(uij, h).array();
-    P[i] = P_ij.sum();
+    double sum = 0.0;
+    double x_i = x[i];
+    double uij = 0.0;
+    for (int j = 0; j < n; j++) {
+        uij = x_i - x[j];
+        sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * m / rho[j] * kernelDeriv0(uij, h);
+    }
+    P[i] = sum;
 }
 
 /* Вычисление давления на каждой из частиц с помощью сглаживающего ядра
@@ -210,81 +208,34 @@ __host__ VectorXd pressure(VectorXd x, VectorXd rho, double m, double h) {
     int blockSize = BLOCK_SIZE;
     int gridSize = (n + blockSize - 1) / blockSize;
 
-    pressureKernelDRho<<<gridSize, blockSize>>>(x_dev, drho_dev, m, h, n);
+    pressureKernelDRho<<<gridSize, blockSize>>>(x_dev, m, h, n, drho_dev);
     HANDLE_ERROR(cudaMemcpy(drho.data(), drho_dev, n * sizeof(double), cudaMemcpyDeviceToHost));
 
-    pressureKernelDDRho<<<gridSize, blockSize>>>(x_dev, ddrho_dev, m, h, n);
+    pressureKernelDDRho<<<gridSize, blockSize>>>(x_dev, m, h, n, ddrho_dev);
     HANDLE_ERROR(cudaMemcpy(ddrho.data(), ddrho_dev, n * sizeof(double), cudaMemcpyDeviceToHost));
 
-    pressureKernel<<<gridSize, blockSize>>>(x_dev, P_dev, rho_dev, drho_dev, ddrho_dev, m, h, n);
+    pressureKernel<<<gridSize, blockSize>>>(x_dev, rho_dev, drho_dev, ddrho_dev, m, h, n, P_dev);
     HANDLE_ERROR(cudaMemcpy(P.data(), P_dev, n * sizeof(double), cudaMemcpyDeviceToHost));
 
     return P;
-
-//
-//
-//    /////////////////
-//    int n = x.size();
-//    VectorXd drho = VectorXd::Zero(n);
-//    VectorXd ddrho = VectorXd::Zero(n);
-//    VectorXd P = VectorXd::Zero(n);
-//
-//    #pragma omp parallel for
-//    for (int i = 0; i < n; i++) {
-//        VectorXd uij = x(i) - x.array();
-//        VectorXd drho_ij = m * kernel(uij, h, 1);
-//        VectorXd ddrho_ij = m * kernel(uij, h, 2);
-//        drho(i) = drho_ij.sum();
-//        ddrho(i) = ddrho_ij.sum();
-//    }
-//
-//    #pragma omp parallel for
-//    for (int i = 0; i < n; i++) {
-//        VectorXd uij = x(i) - x.array();
-//        VectorXd P_ij = 0.25 * (drho.array() * drho.array() / rho.array() - ddrho.array()) * m / rho.array() * kernel(uij, h, 0).array();
-//        P(i) = P_ij.sum();
-//    }
-//    return P;
-}
-
-__host__ __device__ VectorXd deleteElement(const VectorXd& vector, int indexToDelete) {
-    int size = vector.size();
-    VectorXd result = VectorXd::Zero(size - 1);
-
-    int resultIndex = 0;
-    for (int i = 0; i < size; ++i) {
-        if (i == indexToDelete) {
-            continue;
-        }
-        result(resultIndex) = vector(i);
-        ++resultIndex;
-    }
-
-    return result;
 }
 
 __global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double m, double h, double b, int n, double* a) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
-    VectorXd xVec = Map<VectorXd>(x, n);
-    VectorXd rhoVec = Map<VectorXd>(rho, n);
-    VectorXd PVec = Map<VectorXd>(P, n);
+    double sum = 0.0;
+    double x_i = x[i];
+    double uij = 0.0;
 
     // Дэмпирование и гармонический потенциал (0.5 x^2)
     a[i] = - u[i] * b - x[i];
 
-    // Квантовое давление
-    VectorXd x_js = deleteElement(xVec, i);
-    VectorXd P_js = deleteElement(PVec, i);
-    VectorXd rho_js = deleteElement(rhoVec, i);
-
-    VectorXd uij = xVec(i) - x_js.array();
-
-    VectorXd fac = -m * (PVec(i) / pow(rhoVec(i), 2) + P_js.array() / (rho_js.array() * rho_js.array()));
-    VectorXd pressure_a = fac.array() * kernelDeriv1(uij, h).array();
-
-    a[i] = a[i] + pressure_a.sum();
+    for (int j = 0; j < n; j++) {
+        uij = x_i - x[j];
+        sum += -m * (P[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, h);
+    }
+    a[i] = a[i] + sum;
 }
 
 /* Расчёт ускорения каждой частицы под действием квантового давления, гармонического потенциала, демпфирования скорости
@@ -307,51 +258,59 @@ __host__ VectorXd acceleration(VectorXd x, VectorXd u, double m, VectorXd rho, V
     HANDLE_ERROR(cudaMemcpy(a.data(), a_dev, n * sizeof(double), cudaMemcpyDeviceToHost));
 
     return a;
+}
 
-
+///* Вычисление плотности в произвольных точках
+// * Вход: положение x, масса частицы SPH m, масштабная длина h, точки измерения xx
+// * Выход: плотность в равномерно расположенных точках
+// */
+//VectorXd probeDensity(VectorXd x, double m, double h, VectorXd xx) {
+//    int nxx = xx.size();
+//    VectorXd rr = VectorXd::Zero(nxx);
 //
-//
-//    ////
-//    int n = x.size();
-//    VectorXd a = VectorXd::Zero(n);
-//
-//    #pragma omp parallel for
-//    for (int i = 0; i < n; i++) {
-//        // Дэмпирование и гармонический потенциал (0.5 x^2)
-//        a(i) = a(i) - u(i) * b - x(i);
-//
-//        // Квантовое давление
-//        VectorXd x_js = deleteElement(x, i);
-//        VectorXd P_js = deleteElement(P, i);
-//        VectorXd rho_js = deleteElement(rho, i);
-//
-//        VectorXd uij = x(i) - x_js.array();
-//
-//        VectorXd fac = -m * (P(i) / pow(rho(i), 2) + P_js.array() / (rho_js.array() * rho_js.array()));
-//        VectorXd pressure_a = fac.array() * kernel(uij, h, 1).array();
-//
-//        a(i) = a(i) + pressure_a.sum();
+//#pragma omp parallel for
+//    for (int i = 0; i < nxx; i++) {
+//        VectorXd uij = xx(i) - x.array();
+//        VectorXd rho_ij = m * kernelDeriv0(uij, h);
+//        rr(i) = rr(i) + rho_ij.sum();
 //    }
 //
-//    return a;
+//    return rr;
+//}
+
+__global__ void probeDensityKernel(double* x, double* xx, double m, double h, int n, double* rho) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+
+    double sum = 0.0;
+    double xx_i = xx[i];
+    double uij = 0.0;
+    for (int j = 0; j < n; j++) {
+        uij = xx_i - x[j];
+        sum += m * kernelDeriv0(uij, h);
+    }
+    rho[i] = sum;
 }
 
 /* Вычисление плотности в произвольных точках
  * Вход: положение x, масса частицы SPH m, масштабная длина h, точки измерения xx
  * Выход: плотность в равномерно расположенных точках
  */
-VectorXd probeDensity(VectorXd x, double m, double h, VectorXd xx) {
-    int nxx = xx.size();
-    VectorXd rr = VectorXd::Zero(nxx);
+__host__ VectorXd probeDensity(VectorXd x, double m, double h, VectorXd xx) {
+    int n = x.size();
+    VectorXd rho = VectorXd::Zero(n);
 
-#pragma omp parallel for
-    for (int i = 0; i < nxx; i++) {
-        VectorXd uij = xx(i) - x.array();
-        VectorXd rho_ij = m * kernelDeriv0(uij, h);
-        rr(i) = rr(i) + rho_ij.sum();
-    }
+    HANDLE_ERROR(cudaMemcpy(x_dev, x.data(), n * sizeof(double), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(xx_dev, xx.data(), n * sizeof(double), cudaMemcpyHostToDevice));
 
-    return rr;
+    int blockSize = BLOCK_SIZE;
+    int gridSize = (n + blockSize - 1) / blockSize;
+
+    probeDensityKernel<<<gridSize, blockSize>>>(x_dev, xx_dev, m, h, n, rho_dev);
+
+    HANDLE_ERROR(cudaMemcpy(rho.data(), rho_dev, n * sizeof(double), cudaMemcpyDeviceToHost));
+
+    return rho;
 }
 
 
