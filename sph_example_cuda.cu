@@ -9,10 +9,7 @@
 #include <chrono>
 #include <omp.h>
 
-#include <Eigen/Core>
-
 using namespace std;
-using namespace Eigen;
 
 #define checkCudaErrors(val) check( (val), #val, __FILE__, __LINE__)
 template<typename T>
@@ -219,9 +216,9 @@ __host__ void pressure(double* x, double* rho, double* P) {
     int gridSize = (N + blockSize - 1) / blockSize;
 
     pressureKernelDRho<<<gridSize, blockSize>>>(x_dev, drho_dev);
-    cudaMemcpy(drho, drho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
-
     pressureKernelDDRho<<<gridSize, blockSize>>>(x_dev, ddrho_dev);
+
+    cudaMemcpy(drho, drho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(ddrho, ddrho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
 
     pressureKernel<<<gridSize, blockSize>>>(x_dev, rho_dev, drho_dev, ddrho_dev, P_dev);
@@ -405,7 +402,7 @@ void compute() {
     cudaEventSynchronize(stop);
     float elapsedTime;
     cudaEventElapsedTime(&elapsedTime, start, stop);
-    printf("Время работы: %3.1f ms\n", elapsedTime);
+    printf("Время работы: %3.1f s\n", elapsedTime / 1000.0);
 
     cudaEventDestroy(start);
     cudaEventDestroy(stop);

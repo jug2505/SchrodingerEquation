@@ -9,8 +9,10 @@ find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(OpenMP REQUIRED)
 enable_language(CUDA)
 
-add_executable(SchrodingerEquation sph_example_cuda_methods.cu)
+add_executable(SchrodingerEquation sph_example_cuda.cu)
 #add_executable(SchrodingerEquation sph_example_openmp.cpp)
+#add_executable(SchrodingerEquation sph_example_linear.cpp)
+
 target_link_libraries (SchrodingerEquation PUBLIC OpenMP::OpenMP_CXX Eigen3::Eigen )
 
 add_definitions(-DUSE_CUDA)
