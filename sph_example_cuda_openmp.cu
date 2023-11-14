@@ -274,7 +274,7 @@ __host__ void acceleration(double* x, double* u, double* rho, double* P, double 
         cudaMemcpy(u_dev + i*(N/NUM_DEVICES), u + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
         cudaMemcpy(P_dev + i*(N/NUM_DEVICES), P + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
 
-        accelerationKernel<<<gridSize, blockSize>>>(x_dev + i*(N/NUM_DEVICES), u_dev + i*(N/NUM_DEVICES), rho_dev + i*(N/NUM_DEVICES), P_dev + i*(N/NUM_DEVICES), b, a_dev + i*(N/NUM_DEVICES), (N/NUM_DEVICES);
+        accelerationKernel<<<gridSize, blockSize>>>(x_dev + i*(N/NUM_DEVICES), u_dev + i*(N/NUM_DEVICES), rho_dev + i*(N/NUM_DEVICES), P_dev + i*(N/NUM_DEVICES), b, a_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES);
         cudaMemcpy(a + i*(N/NUM_DEVICES), a_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
         checkCudaErrors(cudaGetLastError());
     }
