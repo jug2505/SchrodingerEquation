@@ -43,14 +43,14 @@ constexpr double xEnd = 3.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // На GPU
-double* x_dev;
-double* xx_dev;
-double* rho_dev;
-double* drho_dev;
-double* ddrho_dev;
-double* P_dev;
-double* u_dev;
-double* a_dev;
+double* x_dev[2] = {NULL, NULL};
+double* xx_dev[2] = {NULL, NULL};
+double* rho_dev[2] = {NULL, NULL};
+double* drho_dev[2] = {NULL, NULL};
+double* ddrho_dev[2] = {NULL, NULL};
+double* P_dev[2] = {NULL, NULL};
+double* u_dev[2] = {NULL, NULL};
+double* a_dev[2] = {NULL, NULL};
 
 // На CPU
 double* x;
@@ -67,6 +67,11 @@ double* u_phalf;
 
 #define NUM_DEVICES 2
 
+cudaDeviceProp prop; 
+int it, nthr;
+int deviceCount, deviceId[2], devId_t;
+int can_access_peer;
+
 void init() {
     omp_set_dynamic(0);
     omp_set_num_threads(NUM_DEVICES);
@@ -82,6 +87,32 @@ void init() {
     probe_rho = new double[N];
     u_mhalf = new double[N];
     u_phalf = new double[N];
+
+    cudaGetDeviceCount( &deviceCount );
+	printf("deviceCount = %d\n", deviceCount);
+	for (int i = 0; i < deviceCount; i++){
+		cudaGetDeviceProperties(&prop, i);
+		printf("Id_GPU = %d, Name_GPU = %s\n", i, prop.name);
+	}
+    printf("Input deviceId (0,1,...,%d)\n",deviceCount-1);
+	for (int i = 0; i < 2; i++) {
+		printf("Input deviceId = ");
+		scanf("%d", &deviceId[i]);
+		if (deviceId[i] > deviceCount - 1){
+			printf("\n Net takogo nomera device GPU"); return 0;
+		}
+	}
+
+    for (int i = 0; i < 2; i++) printf("deviceId[%d] = %d\n", i, deviceId[i]);
+
+    #pragma omp parallel for schedule(static,1)
+	for (int i = 0; i < 2; i++){
+		cudaSetDevice(deviceId[i]);
+		if (i == 0) devId_t = deviceId[i+1];
+		else if (i == 1) devId_t = deviceId[i-1];
+		cudaDeviceCanAccessPeer(&can_access_peer, deviceId[i], devId_t);
+		printf("can_access_peer=%d, %d\n", can_access_peer, deviceId[i]);
+	}
 
     #pragma omp parallel for num_threads(NUM_DEVICES)
     for(int i = 0; i < NUM_DEVICES; i++) {
@@ -324,7 +355,6 @@ void getCudaInfo() {
 
 
 void compute() {
-    getCudaInfo();
     init();
 
     cudaEvent_t start, stop;
