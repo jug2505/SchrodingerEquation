@@ -68,9 +68,7 @@ double* u_phalf;
 #define NUM_DEVICES 2
 
 cudaDeviceProp prop; 
-int it, nthr;
 int deviceCount, deviceId[2], devId_t;
-int can_access_peer;
 
 void init() {
     omp_set_dynamic(0);
@@ -95,37 +93,30 @@ void init() {
 		printf("Id_GPU = %d, Name_GPU = %s\n", i, prop.name);
 	}
     printf("Input deviceId (0,1,...,%d)\n",deviceCount-1);
-	for (int i = 0; i < 2; i++) {
+	for (int i = 0; i < NUM_DEVICES; i++) {
 		printf("Input deviceId = ");
 		scanf("%d", &deviceId[i]);
 		if (deviceId[i] > deviceCount - 1){
-			printf("\n Net takogo nomera device GPU"); return 0;
+			printf("\n Net takogo nomera device GPU");
 		}
 	}
 
     for (int i = 0; i < 2; i++) printf("deviceId[%d] = %d\n", i, deviceId[i]);
 
-    #pragma omp parallel for schedule(static,1)
-	for (int i = 0; i < 2; i++){
-		cudaSetDevice(deviceId[i]);
-		if (i == 0) devId_t = deviceId[i+1];
-		else if (i == 1) devId_t = deviceId[i-1];
-		cudaDeviceCanAccessPeer(&can_access_peer, deviceId[i], devId_t);
-		printf("can_access_peer=%d, %d\n", can_access_peer, deviceId[i]);
-	}
-
-    #pragma omp parallel for num_threads(NUM_DEVICES)
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static, 1)
     for(int i = 0; i < NUM_DEVICES; i++) {
-        cudaSetDevice(i);
-        cudaMalloc(&x_dev, N * sizeof(double));
-        cudaMalloc(&xx_dev, N * sizeof(double));
-        cudaMalloc(&rho_dev, N * sizeof(double));
-        cudaMalloc(&drho_dev, N * sizeof(double));
-        cudaMalloc(&ddrho_dev, N * sizeof(double));
-        cudaMalloc(&P_dev, N * sizeof(double));
-        cudaMalloc(&u_dev, N * sizeof(double));
-        cudaMalloc(&a_dev, N * sizeof(double));
-        checkCudaErrors(cudaGetLastError());
+        cudaSetDevice(deviceId[i]);
+        cudaMalloc(&x_dev[i], N * sizeof(double));
+        cudaMalloc(&xx_dev[i], N * sizeof(double));
+        cudaMalloc(&rho_dev[i], N * sizeof(double));
+        cudaMalloc(&drho_dev[i], N * sizeof(double));
+        cudaMalloc(&ddrho_dev[i], N * sizeof(double));
+        cudaMalloc(&P_dev[i], N * sizeof(double));
+        cudaMalloc(&x_dev[i], N * sizeof(double));
+        cudaMalloc(&u_dev[i], N * sizeof(double));
+        cudaMalloc(&a_dev[i], N * sizeof(double));
+        cudaDeviceSynchronize();
+        printf("deviceId=%d,  threadCPU=%d\n", deviceId[i], omp_get_thread_num());
     }
 }
 
@@ -142,18 +133,18 @@ void clear() {
     delete[] u_mhalf;
     delete[] u_phalf;
 
-    #pragma omp parallel for num_threads(NUM_DEVICES)
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
     for(int i = 0; i < NUM_DEVICES; i++) {
-        cudaSetDevice(i);
-        cudaFree(x_dev);
-        cudaFree(xx_dev);
-        cudaFree(rho_dev);
-        cudaFree(drho_dev);
-        cudaFree(ddrho_dev);
-        cudaFree(P_dev);
-        cudaFree(u_dev);
-        cudaFree(a_dev);
-        checkCudaErrors(cudaGetLastError());
+        cudaSetDevice(deviceId[i]);
+        cudaFree(x_dev[i]);
+        cudaFree(xx_dev[i]);
+        cudaFree(rho_dev[i]);
+        cudaFree(drho_dev[i]);
+        cudaFree(ddrho_dev[i]);
+        cudaFree(P_dev[i]);
+        cudaFree(u_dev[i]);
+        cudaFree(a_dev[i]);
+        cudaDeviceSynchronize();
     }
 }
 
@@ -176,14 +167,14 @@ __device__ double kernelDeriv3(double r) {
     return pow(h, -7) / sqrt(M_PI) * exp(-pow(r, 2) / pow(h, 2)) * (-8.0 * pow(r, 3) + 12.0 * pow(h, 2) * r);
 }
 
-__global__ void densityKernel(double* x, double* rho, int n) {
+__global__ void densityKernel(double* x, double* rho, int n, int deviceNum) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
     double sum = 0.0;
-    double x_i = x[i];
+    double x_i = x[i + deviceNum * N / 2];
     double uij = 0.0;
-    for (int j = 0; j < n; j++) {
+    for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
         sum += M * kernelDeriv0(uij);
     }
@@ -196,53 +187,66 @@ __global__ void densityKernel(double* x, double* rho, int n) {
 __host__ void density(double* x, double* rho) {
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
+    //    int gridSize = (N + blockSize - 1) / blockSize / 2;
 
-    #pragma omp parallel for num_threads(NUM_DEVICES)
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
     for(int i = 0; i < NUM_DEVICES; i++) {
-        cudaSetDevice(i);
-        cudaMemcpy(x_dev + i*(N/NUM_DEVICES), x + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
-        densityKernel<<<gridSize, blockSize>>>(x_dev + i*(N/NUM_DEVICES), rho_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES);
-        cudaMemcpy(rho + i*(N/NUM_DEVICES), rho_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
-        checkCudaErrors(cudaGetLastError());
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(x_dev[i], x, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        densityKernel<<<gridSize, blockSize>>>(x_dev[i], rho_dev[i], N/NUM_DEVICES, i);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(rho + i*(N/NUM_DEVICES), rho_dev[i], N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaDeviceSynchronize();
     }
 }
 
-__global__ void pressureKernelDRho(double* x, double* drho, int n) {
+__global__ void pressureKernelDRho(double* x, double* drho, int n, int deviceNum) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
     double sum = 0.0;
-    double x_i = x[i];
+    double x_i = x[i + deviceNum * N / 2];
     double uij = 0.0;
-    for (int j = 0; j < n; j++) {
+    for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
         sum += M * kernelDeriv1(uij);
     }
     drho[i] = sum;
 }
 
-__global__ void pressureKernelDDRho(double* x, double* ddrho, int n) {
+__global__ void pressureKernelDDRho(double* x, double* ddrho, int n, int deviceNum) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
     double sum = 0.0;
-    double x_i = x[i];
+    double x_i = x[i + deviceNum * N / 2];
     double uij = 0.0;
-    for (int j = 0; j < n; j++) {
+    for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
         sum += M * kernelDeriv2(uij);
     }
     ddrho[i] = sum;
 }
 
-__global__ void pressureKernel(double* x, double* rho, double* drho, double* ddrho, double* P, int n) {
+__global__ void pressureKernel(double* x, double* rho, double* drho, double* ddrho, double* P, int n, int deviceNum) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
     double sum = 0.0;
-    double x_i = x[i];
+    double x_i = x[i + deviceNum * N / 2];
     double uij = 0.0;
-    for (int j = 0; j < n; j++) {
+    for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
         sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * M / rho[j] * kernelDeriv0(uij);
     }
@@ -257,35 +261,79 @@ __host__ void pressure(double* x, double* rho, double* P) {
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
 
-    #pragma omp parallel for num_threads(NUM_DEVICES)
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
     for(int i = 0; i < NUM_DEVICES; i++) {
-        cudaSetDevice(i);
-        cudaMemcpy(x_dev + i*(N/NUM_DEVICES), x + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(rho_dev + i*(N/NUM_DEVICES), rho + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
-        pressureKernelDRho<<<gridSize, blockSize>>>(x_dev + i*(N/NUM_DEVICES), drho_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES);
-        pressureKernelDDRho<<<gridSize, blockSize>>>(x_dev + i*(N/NUM_DEVICES), ddrho_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES);
-        cudaMemcpy(drho + i*(N/NUM_DEVICES), drho_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
-        cudaMemcpy(ddrho + i*(N/NUM_DEVICES), ddrho_dev + i*(N/NUM_DEVICES) , N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
-        pressureKernel<<<gridSize, blockSize>>>(x_dev + i*(N/NUM_DEVICES), rho_dev + i*(N/NUM_DEVICES), drho_dev + i*(N/NUM_DEVICES), ddrho_dev + i*(N/NUM_DEVICES), P_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES);
-        cudaMemcpy(P + i*(N/NUM_DEVICES), P_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
-        checkCudaErrors(cudaGetLastError());
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(x_dev[i], x, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(rho_dev[i], rho, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        pressureKernelDRho<<<gridSize, blockSize>>>(x_dev[i], drho_dev[i], N/NUM_DEVICES, i);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(drho + i*(N/NUM_DEVICES), drho_dev[i], N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaMemcpy(drho_dev[i], drho, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        pressureKernelDDRho<<<gridSize, blockSize>>>(x_dev[i], ddrho_dev[i], N/NUM_DEVICES, i);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(ddrho + i*(N/NUM_DEVICES), ddrho_dev[i] , N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaMemcpy(ddrho_dev[i], ddrho, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        pressureKernel<<<gridSize, blockSize>>>(x_dev[i], rho_dev[i], drho_dev[i], ddrho_dev[i], P_dev[i], N/NUM_DEVICES, i);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(P + i*(N/NUM_DEVICES), P_dev[i], N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaDeviceSynchronize();
     }
 }
 
-__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* a, int n) {
+__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* a, int n, int deviceNum) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
     double sum = 0.0;
-    double x_i = x[i];
+    double x_i = x[i + deviceNum * N / 2];
     double uij = 0.0;
 
     // Дэмпирование и гармонический потенциал (0.5 x^2)
-    a[i] = - u[i] * b - x[i];
+    a[i] = - u[i + deviceNum * N / 2] * b - x[i + deviceNum * N / 2];
 
-    for (int j = 0; j < n; j++) {
+    for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
-        sum += -M * (P[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij);
+        sum += -M * (P[i + deviceNum * N / 2] / pow(rho[i + deviceNum * N / 2], 2) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij);
     }
     a[i] = a[i] + sum;
 }
@@ -297,28 +345,39 @@ __host__ void acceleration(double* x, double* u, double* rho, double* P, double 
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
 
-    #pragma omp parallel for num_threads(NUM_DEVICES)
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
     for(int i = 0; i < NUM_DEVICES; i++) {
-        cudaSetDevice(i);
-        cudaMemcpy(x_dev + i*(N/NUM_DEVICES), x + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(rho_dev + i*(N/NUM_DEVICES), rho + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(u_dev + i*(N/NUM_DEVICES), u + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(P_dev + i*(N/NUM_DEVICES), P + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(x_dev[i], x, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(rho_dev[i], rho, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(u_dev[i], u, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(P_dev[i], P, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+    }
 
-        accelerationKernel<<<gridSize, blockSize>>>(x_dev + i*(N/NUM_DEVICES), u_dev + i*(N/NUM_DEVICES), rho_dev + i*(N/NUM_DEVICES), P_dev + i*(N/NUM_DEVICES), b, a_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES);
-        cudaMemcpy(a + i*(N/NUM_DEVICES), a_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
-        checkCudaErrors(cudaGetLastError());
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        accelerationKernel<<<gridSize, blockSize>>>(x_dev[i], u_dev[i], rho_dev[i], P_dev[i], b, a_dev[i], N/NUM_DEVICES, i);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(a + i*(N/NUM_DEVICES), a_dev[i], N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaDeviceSynchronize();
     }
 }
 
-__global__ void probeDensityKernel(double* x, double* xx, double* rho, int n) {
+__global__ void probeDensityKernel(double* x, double* xx, double* rho, int n, int deviceNum) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 
     double sum = 0.0;
-    double xx_i = xx[i];
+    double xx_i = xx[i + deviceNum * N / 2];
     double uij = 0.0;
-    for (int j = 0; j < n; j++) {
+    for (int j = 0; j < N; j++) {
         uij = xx_i - x[j];
         sum += M * kernelDeriv0(uij);
     }
@@ -333,14 +392,26 @@ __host__ void probeDensity(double* x, double* xx, double* prob_rho) {
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
 
-    #pragma omp parallel for num_threads(NUM_DEVICES)
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
     for(int i = 0; i < NUM_DEVICES; i++) {
-        cudaSetDevice(i);
-        cudaMemcpy(x_dev + i*(N/NUM_DEVICES), x + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(xx_dev + i*(N/NUM_DEVICES), xx + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyHostToDevice);
-        probeDensityKernel<<<gridSize, blockSize>>>(x_dev + i*(N/NUM_DEVICES), xx_dev + i*(N/NUM_DEVICES), rho_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES);
-        cudaMemcpy(prob_rho + i*(N/NUM_DEVICES), rho_dev + i*(N/NUM_DEVICES), N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
-        checkCudaErrors(cudaGetLastError());
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(x_dev[i], x, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(xx_dev[i], xx, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        probeDensityKernel<<<gridSize, blockSize>>>(x_dev[i], xx_dev[i], rho_dev[i], N/NUM_DEVICES, i);
+        cudaDeviceSynchronize();
+    }
+
+    #pragma omp parallel for num_threads(NUM_DEVICES) schedule(static,1)
+    for(int i = 0; i < NUM_DEVICES; i++) {
+        cudaSetDevice(deviceId[i]);
+        cudaMemcpy(prob_rho + i*(N/NUM_DEVICES), rho_dev[i], N/NUM_DEVICES * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaDeviceSynchronize();
     }
 }
 
@@ -378,11 +449,11 @@ void compute() {
         u_mhalf[i] = u[i] - 0.5 * DT * a[i];
     }
 
-    ofstream outfile("solution_cuda.txt");
+    ofstream outfile("solution_cuda_openmp.txt");
     outfile << "X Z" << endl;
 
-    ofstream outfile_exact("solution_exact_cuda.txt");
-    outfile_exact << "X Z" << endl;
+//    ofstream outfile_exact("solution_exact_cuda.txt");
+//    outfile_exact << "X Z" << endl;
 
     // Главный цикл по времени
     double t = 0.0;
@@ -430,7 +501,7 @@ void compute() {
         }
     }
     outfile.close();
-    outfile_exact.close();
+    //outfile_exact.close();
 
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
