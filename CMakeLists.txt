@@ -12,7 +12,7 @@ enable_language(CUDA)
 #add_executable(SchrodingerEquation sph_example_cuda.cu)
 #add_executable(SchrodingerEquation sph_example_openmp.cpp)
 #add_executable(SchrodingerEquation sph_example_linear.cpp)
-add_executable(SchrodingerEquation sph_example_cuda.cu)
+add_executable(SchrodingerEquation main.cu)
 
 target_link_libraries (SchrodingerEquation PUBLIC OpenMP::OpenMP_CXX Eigen3::Eigen )
 
