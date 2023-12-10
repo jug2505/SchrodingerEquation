@@ -5,7 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <chrono>
-#include <omp.h>
+#include <map>
 
 using namespace std;
 
@@ -22,14 +22,13 @@ void check(T err, const char* const func, const char* const file, const int line
 
 // Настройка SPH
 #define N 100
-constexpr double DT = 0.02;  // Шаг по времени
-constexpr int NT = 100;  // Кол-во шагов по времени
-constexpr int NT_SETUP = 400;  // Кол-во шагов на настройку
-constexpr int N_OUT = 25;  // Вывод каждые N_OUT шагов
-// i d_t psi + nabla^2/2 psi -x^2 psi/2 = 0
-// Потенциал: 1/2 x^2
-double b = 4;  // Демпфирование скорости для настройки начального состояния
-#define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
+constexpr double DT = 0.001;  // Шаг по времени
+constexpr int NT = 10000;  // Кол-во шагов по времени
+constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
+constexpr int N_OUT = 1000;  // Вывод каждые N_OUT шагов
+
+double b = 0;  // Демпфирование скорости для настройки начального состояния
+// #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
 #define h (40.0 / N)  // Расстояние сглаживания
 constexpr double xStart = -3.0;
 constexpr double xEnd = 3.0;
@@ -44,19 +43,29 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 #define gamma0 4.32e-12
 #define chi 20.0
 #define E0 0.0
-#define omega 5.0e14
-#define omega0 1.0e14
+//#define omega 5.0e14
+//#define omega0 1.0e14
 #define Kb 1.38e-16
 #define T 77.0
-#define a_eq 0.3
+#define a_eq 0.003
 #define b_eq 2.0
-#define F 0.0
+#define F 0
 #define F0 1.0
+#define S_MAX 7
+#define ALPHA_MAX 9
+
+// Кол-во разбиений для интеграла
+//const int num_splits = 100000;
+const int num_splits = 1000;
+
+// Кэш
+map<pair<int, int>, double> G_alpha_s_cache;
+map<pair<int, int>, double> delta_alpha_s_cache;
 
 // Данные на GPU
-double *x_dev, *xx_dev, *rho_dev, *drho_dev, *ddrho_dev, *P_dev, *u_dev, *a_dev;
+double *x_dev, *xx_dev, *rho_dev, *drho_dev, *ddrho_dev, *P_dev, *u_dev, *a_dev, *mass_dev, *G_s_sum_array_dev;
 // Данные на CPU
-double *x, *u, *rho, *drho, *ddrho, *P, *a, *xx, *probe_rho, *u_mhalf, *u_phalf;
+double *x, *u, *rho, *drho, *ddrho, *P, *a, *xx, *probe_rho, *u_mhalf, *u_phalf, *mass, *G_s_sum_array;
 
 void init() {
     x = new double[N];
@@ -70,6 +79,8 @@ void init() {
     probe_rho = new double[N];
     u_mhalf = new double[N];
     u_phalf = new double[N];
+    mass = new double[N];
+    G_s_sum_array = new double[ALPHA_MAX];
 
     cudaMalloc(&x_dev, N * sizeof(double));
     cudaMalloc(&xx_dev, N * sizeof(double));
@@ -79,6 +90,8 @@ void init() {
     cudaMalloc(&P_dev, N * sizeof(double));
     cudaMalloc(&u_dev, N * sizeof(double));
     cudaMalloc(&a_dev, N * sizeof(double));
+    cudaMalloc(&mass_dev, N * sizeof(double));
+    cudaMalloc(&G_s_sum_array_dev, ALPHA_MAX * sizeof(double));
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -94,6 +107,8 @@ void clear() {
     delete[] probe_rho;
     delete[] u_mhalf;
     delete[] u_phalf;
+    delete[] mass;
+    delete[] G_s_sum_array;
 
     cudaFree(x_dev);
     cudaFree(xx_dev);
@@ -103,7 +118,112 @@ void clear() {
     cudaFree(P_dev);
     cudaFree(u_dev);
     cudaFree(a_dev);
+    cudaFree(mass_dev);
+    cudaFree(G_s_sum_array_dev);
     checkCudaErrors(cudaGetLastError());
+}
+
+__host__ __device__ double factorial(const int n) {
+    double f = 1;
+    for (int i=1; i<=n; ++i) f *= i;
+    return f;
+}
+
+__host__ double eps(const double p, const double s) {
+    return gamma0 * sqrt(1.0 + 4.0 * cos(p) * cos(M_PI * (s + F/F0) / m) + 4.0 * cos(M_PI * (s + F/F0) / m) * cos(M_PI * (s + F/F0) / m));
+}
+
+__host__ double deltaUnderIntegral(double p, double alpha, double s) {
+    return eps(p, s) * cos(p * alpha);
+}
+
+__host__ double simpsonIntegralDelta(const double a, const double b, const int n, double alpha, double s) {
+    const double width = (b-a)/n;
+    double simpson_integral = 0;
+    for(int step = 0; step < n; step++) {
+        const double x1 = a + step*width;
+        const double x2 = a + (step+1)*width;
+        simpson_integral += (x2-x1)/6.0*(deltaUnderIntegral(x1, alpha, s) + 4.0*deltaUnderIntegral(0.5*(x1+x2), alpha, s) + deltaUnderIntegral(x2, alpha, s));
+    }
+    return simpson_integral;
+}
+
+__host__ double delta(const int alpha, const int s) {
+    if (delta_alpha_s_cache.find({alpha, s}) != delta_alpha_s_cache.end()) {
+        return delta_alpha_s_cache[{alpha, s}];
+    }
+    double result = simpsonIntegralDelta(-M_PI, M_PI, num_splits, alpha, s) / M_PI;
+    delta_alpha_s_cache[{alpha, s}] = result;
+    cout << "delta_alpha_s alpha = " << alpha << ", s = " << s << " cached" << endl;
+    return result;
+}
+
+__host__ double GNominatorUnderIntegral(double r, double alpha, double s) {
+    double sum = 0.0;
+    for (int i = 1; i <= 9; i++) {
+        sum += delta(i, s) * cos(i * r) / (Kb * T);
+    }
+    return cos(alpha * r) * exp(-sum);
+}
+
+__host__ double simpsonIntegralGNominator(const double a, const double b, const int n, double alpha, double s) {
+    const double width = (b-a)/n;
+    double simpson_integral = 0;
+    for(int step = 0; step < n; step++) {
+        const double x1 = a + step*width;
+        const double x2 = a + (step+1)*width;
+        simpson_integral += (x2-x1)/6.0*(GNominatorUnderIntegral(x1, alpha, s) + 4.0*GNominatorUnderIntegral(0.5*(x1+x2), alpha, s) + GNominatorUnderIntegral(x2, alpha, s));
+    }
+    return simpson_integral;
+}
+
+__host__ double simpsonIntegralGDenominator(double r, double alpha, double s_idx) {
+    double sum = 0.0;
+    for (int i = 1; i <= 9; i++) {
+        sum += delta(i, s_idx) * cos(i * r) / (Kb * T);
+    }
+    return exp(-sum);
+}
+
+__host__ double simpsonIntegralGDenominator(const double a, const double b, const int n, double alpha, double s) {
+    const double width = (b-a)/n;
+    double simpson_integral = 0;
+    for(int step = 0; step < n; step++) {
+        const double x1 = a + step*width;
+        const double x2 = a + (step+1)*width;
+        simpson_integral += (x2-x1)/6.0*(simpsonIntegralGDenominator(x1, alpha, s) + 4.0*simpsonIntegralGDenominator(0.5*(x1+x2), alpha, s) + simpsonIntegralGDenominator(x2, alpha, s));
+    }
+    return simpson_integral;
+}
+
+__host__ double G(const int alpha, const int s) {
+    if (G_alpha_s_cache.find({alpha, s}) != G_alpha_s_cache.end()) {
+        return G_alpha_s_cache[{alpha, s}];
+    }
+
+    double nominator = simpsonIntegralGNominator(-M_PI, M_PI, num_splits, alpha, s);
+
+    double denominator = 0.0;
+    for (int s_idx = 1; s_idx <= 7; s_idx++) {
+        denominator += simpsonIntegralGDenominator(-M_PI, M_PI, num_splits, alpha, s_idx);
+    }
+    double result = -alpha * delta(alpha, s) * nominator / (gamma0 * denominator);
+    G_alpha_s_cache[{alpha, s}] = result;
+    cout << "G_alpha_s alpha = " << alpha << ", s = " << s << " cached" << endl;
+
+    return result;
+}
+
+__host__ double G1(const int alpha, const int s, const double t_value) {
+    return G(alpha, s) * cos(alpha * E0 * t_value * 0.0001);
+}
+
+__host__ double G2(const int alpha, const int s, const double t_value) {
+    return G(alpha, s) * sin(alpha * E0 * t_value * 0.0001);
+}
+
+__host__ __device__ double fl(double l) {
+    return pow(-1, l) / (factorial(l) * pow(2, 2 * l) * tgamma(l + 2));
 }
 
 /* Гауссово сглаживающее ядро SPH (1D) */
@@ -120,14 +240,14 @@ __device__ double kernelDeriv3(double r) {
     return pow(h, -7) / sqrt(M_PI) * exp(-pow(r, 2) / pow(h, 2)) * (-8.0 * pow(r, 3) + 12.0 * pow(h, 2) * r);
 }
 
-__global__ void densityKernel(double* x, double* rho) {
+__global__ void densityKernel(double* x, double* mass, double* rho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += M * kernelDeriv0(uij);
+        sum += mass[j] * kernelDeriv0(uij);
     }
     rho[i] = sum;
 }
@@ -136,45 +256,60 @@ __global__ void densityKernel(double* x, double* rho) {
 __host__ void density(double* x, double* rho) {
     cudaMemcpy(x_dev, x, N * sizeof(double), cudaMemcpyHostToDevice);
 
-    densityKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, rho_dev);
+    densityKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, rho_dev);
 
     cudaMemcpy(rho, rho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void pressureKernelDRho(double* x, double* drho) {
+__global__ void pressureKernelDRho(double* x, double* mass, double* drho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += M * kernelDeriv1(uij);
+        sum += mass[j] * kernelDeriv1(uij);
     }
     drho[i] = sum;
 }
 
-__global__ void pressureKernelDDRho(double* x, double* ddrho) {
+__global__ void pressureKernelDDRho(double* x, double* mass, double* ddrho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += M * kernelDeriv2(uij);
+        sum += mass[j] * kernelDeriv2(uij);
     }
     ddrho[i] = sum;
 }
 
-__global__ void pressureKernel(double* x, double* rho, double* drho, double* ddrho, double* P) {
+__global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, double* rho, double* drho, double* ddrho, double* P) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     double sum = 0.0;
+
+    // Обычное давление
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * M / rho[j] * kernelDeriv0(uij) / (chi * chi);
+        sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * mass[j] / rho[j] * kernelDeriv0(uij) / (chi * chi);
     }
+
+    // Давление от нелинейности
+    double sum_nl = 0.0;
+    for (int alpha = 1; alpha <= 9; alpha++) {
+        double l_sum = 0.0;
+        for (int l = 1; l <= 5; l++) {
+            l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l) * pow(rho[i], l + 1);
+        }
+        sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
+    }
+    double P_NL = 1.0 / (2.0 * chi * chi) * sum_nl;
+    sum += P_NL;
+
     P[i] = sum;
 }
 
@@ -185,54 +320,30 @@ __host__ void pressure(double* x, double* rho, double* P) {
     cudaMemcpy(x_dev, x, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(rho_dev, rho, N * sizeof(double), cudaMemcpyHostToDevice);
 
-    pressureKernelDRho<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, drho_dev);
-    pressureKernelDDRho<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, ddrho_dev);
+    pressureKernelDRho<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, drho_dev);
+    pressureKernelDDRho<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, ddrho_dev);
 
     cudaMemcpy(drho, drho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(ddrho, ddrho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
 
-    pressureKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, rho_dev, drho_dev, ddrho_dev, P_dev);
+    pressureKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, G_s_sum_array_dev, rho_dev, drho_dev, ddrho_dev, P_dev);
     cudaMemcpy(P, P_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* a) {
+__global__ void accelerationKernel(double* x, double* mass, double* u, double* rho, double* P, double b, double* a) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
-
-    // Нелинейность
-    double P_NL = 0.0;
-    if (b == 0) { // Включение нелинейности только после инициализации
-        double * G_s_sum_array = new double[9] { 0.91, 0.327466, 0.1847448, 0.1182372, 0.0803538, 0.0565458, 0.0407006, 0.0297586, 0.0220082};
-        double sum_nl = 0.0;
-        for (int alpha = 1; alpha <= 9; alpha++) {
-            double G_s_sum = G_s_sum_array[alpha - 1];
-//        for (int s = 1; s <= m; s++) {
-//            G_s_sum += G(alpha, s);
-//        }
-            double l_sum = 0.0;
-            for (int l = 1; l <= 5; l++) {
-                double f_l = 0.001; // TODO: Что это?
-                l_sum += f_l * l / (l + 1.0) * pow(alpha, 2 * l) * pow(rho[i], l + 1);
-            }
-            sum_nl += alpha * G_s_sum * l_sum;
-        }
-        P_NL = 1.0 / (2.0 * chi * chi) * sum_nl;
-        delete [] G_s_sum_array;
-    }
-
     // Дэмпирование и гармонический потенциал (0.5 x^2)
-    a[i] = - u[i] * b - x[i];
+    //a[i] = - u[i] * b - x[i];
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += -M * ((P[i] + P_NL) / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij);
+        sum += -mass[j] * (P[i] / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij);
     }
-
-    a[i] = a[i] + sum;
-    printf("%lf\n", a[i]);
+    a[i] = sum;
 }
 
 /* Расчёт ускорения каждой частицы под действием квантового давления, гармонического потенциала, демпфирования скорости */
@@ -242,20 +353,20 @@ __host__ void acceleration(double* x, double* u, double* rho, double* P, double 
     cudaMemcpy(u_dev, u, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(P_dev, P, N * sizeof(double), cudaMemcpyHostToDevice);
 
-    accelerationKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, u_dev, rho_dev, P_dev, b, a_dev);
+    accelerationKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, u_dev, rho_dev, P_dev, b, a_dev);
 
     cudaMemcpy(a, a_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void probeDensityKernel(double* x, double* xx, double* rho) {
+__global__ void probeDensityKernel(double* x, double* mass, double* xx, double* rho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = xx[i] - x[j];
-        sum += M * kernelDeriv0(uij);
+        sum += mass[j] * kernelDeriv0(uij);
     }
     rho[i] = sum;
 }
@@ -265,7 +376,7 @@ __host__ void probeDensity(double* x, double* xx, double* prob_rho) {
     cudaMemcpy(x_dev, x, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(xx_dev, xx, N * sizeof(double), cudaMemcpyHostToDevice);
 
-    probeDensityKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, xx_dev, rho_dev);
+    probeDensityKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, xx_dev, rho_dev);
 
     cudaMemcpy(prob_rho, rho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
@@ -312,6 +423,23 @@ void compute() {
         x[i] = xStart + i * xStep;
         xx[i] = x[i]; // Для графика
     }
+
+    // Инициализация масс частиц
+    double v0 = (xStart + xEnd) / 2.0;
+    for (int i = 0; i < N; i++) {
+        mass[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
+    }
+    cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
+
+    // Вычисление G_alpha_s
+    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+        double sum_s = 0.0;
+        for(int s = 1; s <= S_MAX; s++) {
+            sum_s += G(alpha, s);
+        }
+        G_s_sum_array[alpha - 1] = sum_s;
+    }
+    cudaMemcpy(G_s_sum_array_dev, G_s_sum_array, ALPHA_MAX * sizeof(double), cudaMemcpyHostToDevice);
 
     // Инициализация плотности, давления и ускорения
     density(x, rho);
