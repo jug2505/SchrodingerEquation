@@ -22,16 +22,16 @@ void check(T err, const char* const func, const char* const file, const int line
 
 // Настройка SPH
 #define N 100
-constexpr double DT = 0.001;  // Шаг по времени
-constexpr int NT = 10000;  // Кол-во шагов по времени
+constexpr double DT = 0.02;  // Шаг по времени
+constexpr int NT = 1500;  // Кол-во шагов по времени
 constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
-constexpr int N_OUT = 1000;  // Вывод каждые N_OUT шагов
+constexpr int N_OUT = 1;  // Вывод каждые N_OUT шагов
 
 double b = 0;  // Демпфирование скорости для настройки начального состояния
 // #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
 #define h (40.0 / N)  // Расстояние сглаживания
-constexpr double xStart = -3.0;
-constexpr double xEnd = 3.0;
+constexpr double xStart = -10.0;
+constexpr double xEnd = 10.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // Настройка CUDA
@@ -47,7 +47,7 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 //#define omega0 1.0e14
 #define Kb 1.38e-16
 #define T 77.0
-#define a_eq 0.003
+#define a_eq 0.3
 #define b_eq 2.0
 #define F 0
 #define F0 1.0
@@ -65,7 +65,7 @@ map<pair<int, int>, double> delta_alpha_s_cache;
 // Данные на GPU
 double *x_dev, *xx_dev, *rho_dev, *drho_dev, *ddrho_dev, *P_dev, *u_dev, *a_dev, *mass_dev, *G_s_sum_array_dev;
 // Данные на CPU
-double *x, *u, *rho, *drho, *ddrho, *P, *a, *xx, *probe_rho, *u_mhalf, *u_phalf, *mass, *G_s_sum_array;
+double *x, *u, *rho, *drho, *ddrho, *P, *a, *xx, *probe_rho, *u_mhalf, *u_phalf, *mass, *G_s_sum_array, *test_init_rho;
 
 void init() {
     x = new double[N];
@@ -81,6 +81,7 @@ void init() {
     u_phalf = new double[N];
     mass = new double[N];
     G_s_sum_array = new double[ALPHA_MAX];
+    test_init_rho = new double[N];
 
     cudaMalloc(&x_dev, N * sizeof(double));
     cudaMalloc(&xx_dev, N * sizeof(double));
@@ -109,6 +110,7 @@ void clear() {
     delete[] u_phalf;
     delete[] mass;
     delete[] G_s_sum_array;
+    delete[] test_init_rho;
 
     cudaFree(x_dev);
     cudaFree(xx_dev);
@@ -427,7 +429,8 @@ void compute() {
     // Инициализация масс частиц
     double v0 = (xStart + xEnd) / 2.0;
     for (int i = 0; i < N; i++) {
-        mass[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
+        mass[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq)) / 4.87; // TODO
+        test_init_rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
     }
     cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
 
@@ -452,11 +455,25 @@ void compute() {
     }
 
     ofstream outfile("solution_cuda.txt");
-    outfile << "X Z" << endl;
+    ofstream outfile_start("start_cuda.txt");
+    outfile << "X T Z" << endl;
+    //outfile << "X Z" << endl; // TODO
+    outfile_start << "X Z" << endl;
+
 
     // Главный цикл по времени
     double t = 0.0;
     for (int i = -NT_SETUP; i < NT; i++) {
+        // Вывод в файлы
+        if (i >= 0 && i % N_OUT == 0) {
+            probeDensity(x,xx, probe_rho);
+            for (int j = 0; j < N; j++) {
+                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
+                //outfile << xx[j] << " " << probe_rho[j] << endl;
+                outfile_start << xx[j] << " " << test_init_rho[j] << endl;
+            }
+        }
+
         // Leap frog
         for (int j = 0; j < N; j++) {
             u_phalf[j] = u_mhalf[j] + a[j] * DT;
@@ -482,15 +499,10 @@ void compute() {
         pressure(x, rho, P);
         acceleration(x, u, rho, P, b, a);
 
-        // Вывод в файлы
-        if (i >= 0 && i % N_OUT == 0) {
-            probeDensity(x,xx, probe_rho);
-            for (int j = 0; j < N; j++) {
-                outfile << xx[j] << " " << probe_rho[j] << endl;
-            }
-        }
+
     }
     outfile.close();
+    outfile_start.close();
 
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
