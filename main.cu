@@ -21,15 +21,16 @@ void check(T err, const char* const func, const char* const file, const int line
 }
 
 // Настройка SPH
-#define N 100
-constexpr double DT = 0.02;  // Шаг по времени
-constexpr int NT = 1500;  // Кол-во шагов по времени
+#define N 500
+#define CENT_COEF 5
+constexpr double DT = 0.002;  // Шаг по времени
+constexpr int NT = 15000;  // Кол-во шагов по времени
 constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
-constexpr int N_OUT = 1;  // Вывод каждые N_OUT шагов
+constexpr int N_OUT = 15;  // Вывод каждые N_OUT шагов
 
 double b = 0;  // Демпфирование скорости для настройки начального состояния
 // #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
-#define h (40.0 / N)  // Расстояние сглаживания
+#define h (40.0 * CENT_COEF / N)  // Расстояние сглаживания
 constexpr double xStart = -10.0;
 constexpr double xEnd = 10.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
@@ -63,9 +64,9 @@ map<pair<int, int>, double> G_alpha_s_cache;
 map<pair<int, int>, double> delta_alpha_s_cache;
 
 // Данные на GPU
-double *x_dev, *xx_dev, *rho_dev, *drho_dev, *ddrho_dev, *P_dev, *u_dev, *a_dev, *mass_dev, *G_s_sum_array_dev;
+double *x_dev, *xx_dev, *rho_dev, *drho_dev, *ddrho_dev, *P_dev, *u_dev, *a_dev, *mass_dev, *G_s_sum_array_dev, *P_NL_dev;
 // Данные на CPU
-double *x, *u, *rho, *drho, *ddrho, *P, *a, *xx, *probe_rho, *u_mhalf, *u_phalf, *mass, *G_s_sum_array, *test_init_rho;
+double *x, *u, *rho, *drho, *ddrho, *P, *a, *xx, *probe_rho, *u_mhalf, *u_phalf, *mass, *G_s_sum_array, *test_init_rho, *P_NL;
 
 void init() {
     x = new double[N];
@@ -82,6 +83,7 @@ void init() {
     mass = new double[N];
     G_s_sum_array = new double[ALPHA_MAX];
     test_init_rho = new double[N];
+    P_NL = new double[N];
 
     cudaMalloc(&x_dev, N * sizeof(double));
     cudaMalloc(&xx_dev, N * sizeof(double));
@@ -93,6 +95,7 @@ void init() {
     cudaMalloc(&a_dev, N * sizeof(double));
     cudaMalloc(&mass_dev, N * sizeof(double));
     cudaMalloc(&G_s_sum_array_dev, ALPHA_MAX * sizeof(double));
+    cudaMalloc(&P_NL_dev, N * sizeof(double));
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -111,6 +114,7 @@ void clear() {
     delete[] mass;
     delete[] G_s_sum_array;
     delete[] test_init_rho;
+    delete[] P_NL;
 
     cudaFree(x_dev);
     cudaFree(xx_dev);
@@ -122,6 +126,7 @@ void clear() {
     cudaFree(a_dev);
     cudaFree(mass_dev);
     cudaFree(G_s_sum_array_dev);
+    cudaFree(P_NL_dev);
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -288,7 +293,7 @@ __global__ void pressureKernelDDRho(double* x, double* mass, double* ddrho) {
     ddrho[i] = sum;
 }
 
-__global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, double* rho, double* drho, double* ddrho, double* P) {
+__global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, double* rho, double* drho, double* ddrho, double* P, double* P_NL) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
@@ -299,6 +304,7 @@ __global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, d
         double uij = x[i] - x[j];
         sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * mass[j] / rho[j] * kernelDeriv0(uij) / (chi * chi);
     }
+    P[i] = sum;
 
     // Давление от нелинейности
     double sum_nl = 0.0;
@@ -309,16 +315,17 @@ __global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, d
         }
         sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
     }
-    double P_NL = 1.0 / (2.0 * chi * chi) * sum_nl;
-    sum += P_NL;
+    P_NL[i] = 1.0 / (2.0 * chi * chi) * sum_nl;
+    //printf("%lf\n", P_NL[i]);
+    P_NL[i] *= -4.87;
+    //P_NL[i] = 9.81 * rho[i] * rho[i] / (chi * chi);
 
-    P[i] = sum;
 }
 
 /* Вычисление давления на каждой из частиц с помощью сглаживающего ядра
  * P = -(1/(4*chi^2))*(d^2 rho /dx^2 - (d rho / dx)^2/rho)
  */
-__host__ void pressure(double* x, double* rho, double* P) {
+__host__ void pressure(double* x, double* rho, double* P, double* P_NL) {
     cudaMemcpy(x_dev, x, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(rho_dev, rho, N * sizeof(double), cudaMemcpyHostToDevice);
 
@@ -328,12 +335,13 @@ __host__ void pressure(double* x, double* rho, double* P) {
     cudaMemcpy(drho, drho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(ddrho, ddrho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
 
-    pressureKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, G_s_sum_array_dev, rho_dev, drho_dev, ddrho_dev, P_dev);
+    pressureKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, G_s_sum_array_dev, rho_dev, drho_dev, ddrho_dev, P_dev, P_NL_dev);
     cudaMemcpy(P, P_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(P_NL, P_NL_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void accelerationKernel(double* x, double* mass, double* u, double* rho, double* P, double b, double* a) {
+__global__ void accelerationKernel(double* x, double* mass, double* G_s_sum_array, double* u, double* rho, double* P, double* P_NL, double b, double* a) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
@@ -343,19 +351,20 @@ __global__ void accelerationKernel(double* x, double* mass, double* u, double* r
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += -mass[j] * (P[i] / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij);
+        sum += -mass[j] * (P_NL[i] / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij);
     }
     a[i] = sum;
 }
 
 /* Расчёт ускорения каждой частицы под действием квантового давления, гармонического потенциала, демпфирования скорости */
-__host__ void acceleration(double* x, double* u, double* rho, double* P, double b, double* a) {
+__host__ void acceleration(double* x, double* u, double* rho, double* P, double* P_NL, double b, double* a) {
     cudaMemcpy(x_dev, x, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(rho_dev, rho, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(u_dev, u, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(P_dev, P, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(P_NL_dev, P_NL, N * sizeof(double), cudaMemcpyHostToDevice);
 
-    accelerationKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, u_dev, rho_dev, P_dev, b, a_dev);
+    accelerationKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, G_s_sum_array_dev, u_dev, rho_dev, P_dev, P_NL_dev, b, a_dev);
 
     cudaMemcpy(a, a_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
@@ -429,7 +438,7 @@ void compute() {
     // Инициализация масс частиц
     double v0 = (xStart + xEnd) / 2.0;
     for (int i = 0; i < N; i++) {
-        mass[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq)) / 4.87; // TODO
+        mass[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq)) / 4.87 / CENT_COEF; // TODO
         test_init_rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
     }
     cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
@@ -446,8 +455,8 @@ void compute() {
 
     // Инициализация плотности, давления и ускорения
     density(x, rho);
-    pressure(x, rho, P);
-    acceleration(x, u, rho, P, b, a);
+    pressure(x, rho, P, P_NL);
+    acceleration(x, u, rho, P, P_NL, b, a);
 
     // v в t=-0.5*DT для leap frog интегратора
     for (int i = 0; i < N; i++) {
@@ -466,11 +475,12 @@ void compute() {
     for (int i = -NT_SETUP; i < NT; i++) {
         // Вывод в файлы
         if (i >= 0 && i % N_OUT == 0) {
-            probeDensity(x,xx, probe_rho);
+            probeDensity(x, xx, probe_rho);
             for (int j = 0; j < N; j++) {
+                //outfile << x[j] << " " << t << " " << rho[j] << endl; // TODO
                 outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
                 //outfile << xx[j] << " " << probe_rho[j] << endl;
-                outfile_start << xx[j] << " " << test_init_rho[j] << endl;
+                //outfile_start << xx[j] << " " << test_init_rho[j] << endl;
             }
         }
 
@@ -485,7 +495,7 @@ void compute() {
         if (i >= 0) {
             t = t + DT;
         }
-        cout << "SPH: t = " << t << endl;
+        cout << "SPH t steps: " << i << "/"<< NT << endl;
 
         if (i == -1) {
             for (int j = 0; j < N; j++) {
@@ -496,10 +506,8 @@ void compute() {
 
         // Обновление плотностей, давлений, ускорений
         density(x, rho);
-        pressure(x, rho, P);
-        acceleration(x, u, rho, P, b, a);
-
-
+        pressure(x, rho, P, P_NL);
+        acceleration(x, u, rho, P, P_NL, b, a);
     }
     outfile.close();
     outfile_start.close();
