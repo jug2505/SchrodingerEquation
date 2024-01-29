@@ -42,13 +42,13 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 // Коэффициенты задачи
 #define m 7
 #define gamma0 4.32e-12
-#define chi 20.0
+#define chi 40// 0: 20.0, 1: 40, 2: 8
 #define E0 0.0
 //#define omega 5.0e14
 //#define omega0 1.0e14
 #define Kb 1.38e-16
 #define T 77.0
-#define a_eq 0.3
+#define a_eq (0.0323*0.0323) // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016)
 #define b_eq 2.0
 #define F 0
 #define F0 1.0
@@ -315,11 +315,8 @@ __global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, d
         }
         sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
     }
-    P_NL[i] = 1.0 / (2.0 * chi * chi) * sum_nl;
+    P_NL[i] = - 1.0 / (2.0 * chi * chi) * sum_nl;
     //printf("%lf\n", P_NL[i]);
-    P_NL[i] *= -4.87;
-    //P_NL[i] = 9.81 * rho[i] * rho[i] / (chi * chi);
-
 }
 
 /* Вычисление давления на каждой из частиц с помощью сглаживающего ядра
@@ -438,8 +435,8 @@ void compute() {
     // Инициализация масс частиц
     double v0 = (xStart + xEnd) / 2.0;
     for (int i = 0; i < N; i++) {
-        mass[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq)) / 4.87 / CENT_COEF; // TODO
-        test_init_rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
+        mass[i] = xStep * a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq)); // TODO
+        // test_init_rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
     }
     cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
 
@@ -464,10 +461,9 @@ void compute() {
     }
 
     ofstream outfile("solution_cuda.txt");
-    ofstream outfile_start("start_cuda.txt");
+    // ofstream outfile_start("start_cuda.txt");
     outfile << "X T Z" << endl;
-    //outfile << "X Z" << endl; // TODO
-    outfile_start << "X Z" << endl;
+    // outfile_start << "X Z" << endl;
 
 
     // Главный цикл по времени
@@ -477,9 +473,7 @@ void compute() {
         if (i >= 0 && i % N_OUT == 0) {
             probeDensity(x, xx, probe_rho);
             for (int j = 0; j < N; j++) {
-                //outfile << x[j] << " " << t << " " << rho[j] << endl; // TODO
                 outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
-                //outfile << xx[j] << " " << probe_rho[j] << endl;
                 //outfile_start << xx[j] << " " << test_init_rho[j] << endl;
             }
         }
@@ -510,7 +504,7 @@ void compute() {
         acceleration(x, u, rho, P, P_NL, b, a);
     }
     outfile.close();
-    outfile_start.close();
+    //outfile_start.close();
 
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
