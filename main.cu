@@ -42,13 +42,13 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 // Коэффициенты задачи
 #define m 7
 #define gamma0 4.32e-12
-#define chi 40// 0: 20.0, 1: 40, 2: 8
+#define chi 8// 0: 20.0, 1: 40, 2: 8
 #define E0 0.0
 //#define omega 5.0e14
 //#define omega0 1.0e14
 #define Kb 1.38e-16
 #define T 77.0
-#define a_eq (0.0323*0.0323) // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016)
+#define a_eq (0.00016*0.00016) // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016)
 #define b_eq 2.0
 #define F 0
 #define F0 1.0
@@ -57,7 +57,7 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // Кол-во разбиений для интеграла
 //const int num_splits = 100000;
-const int num_splits = 1000;
+const int num_splits = 10000;
 
 // Кэш
 map<pair<int, int>, double> G_alpha_s_cache;
