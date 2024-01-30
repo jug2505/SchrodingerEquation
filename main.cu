@@ -42,18 +42,21 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 // Коэффициенты задачи
 #define m 7
 #define gamma0 4.32e-12
-#define chi 8// 0: 20.0, 1: 40, 2: 8
+#define chi 4 // 0: 20.0, 1: 40, 2: 8, 3: 4
 #define E0 0.0
 //#define omega 5.0e14
 //#define omega0 1.0e14
 #define Kb 1.38e-16
 #define T 77.0
-#define a_eq (0.00016*0.00016) // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016)
+#define a_eq 1 // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1
 #define b_eq 2.0
 #define F 0
 #define F0 1.0
 #define S_MAX 7
 #define ALPHA_MAX 9
+#define R -0.5*gamma0 // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+#define Q R
+#define D (-Q)
 
 // Кол-во разбиений для интеграла
 //const int num_splits = 100000;
@@ -140,8 +143,12 @@ __host__ double eps(const double p, const double s) {
     return gamma0 * sqrt(1.0 + 4.0 * cos(p) * cos(M_PI * (s + F/F0) / m) + 4.0 * cos(M_PI * (s + F/F0) / m) * cos(M_PI * (s + F/F0) / m));
 }
 
+__host__ double eps_imp(const double p, const double s) {
+    return 0.5 * (R + Q + sqrt((R - Q) * (R - Q) - 4.0 * (D * 2.0 * eps(p, s) - eps(p, s) * eps(p, s) - D*D)));
+}
+
 __host__ double deltaUnderIntegral(double p, double alpha, double s) {
-    return eps(p, s) * cos(p * alpha);
+    return eps_imp(p, s) * cos(p * alpha);
 }
 
 __host__ double simpsonIntegralDelta(const double a, const double b, const int n, double alpha, double s) {
