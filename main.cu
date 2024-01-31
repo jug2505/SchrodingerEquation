@@ -139,12 +139,16 @@ __host__ __device__ double factorial(const int n) {
     return f;
 }
 
+__host__ double F_func(const double p, const double s) {
+    return 2.0 * D * gamma0 * (cos(2.0 * a_eq * p / 3.0) + 2.0  * cos(a_eq * p / 3.0) * cos(M_PI * s / m));
+}
+
 __host__ double eps(const double p, const double s) {
-    return gamma0 * sqrt(1.0 + 4.0 * cos(p) * cos(M_PI * (s + F/F0) / m) + 4.0 * cos(M_PI * (s + F/F0) / m) * cos(M_PI * (s + F/F0) / m));
+    return gamma0 * sqrt(1.0 + 4.0 * cos(a_eq * p) * cos(M_PI * (s + F/F0) / m) + 4.0 * cos(M_PI * (s + F/F0) / m) * cos(M_PI * (s + F/F0) / m));
 }
 
 __host__ double eps_imp(const double p, const double s) {
-    return 0.5 * (R + Q + sqrt((R - Q) * (R - Q) - 4.0 * (D * 2.0 * eps(p, s) - eps(p, s) * eps(p, s) - D*D)));
+    return 0.5 * (R + Q + sqrt((R - Q) * (R - Q) - 4.0 * (F_func(p, s) - eps(p, s) * eps(p, s) - D*D)));
 }
 
 __host__ double deltaUnderIntegral(double p, double alpha, double s) {
