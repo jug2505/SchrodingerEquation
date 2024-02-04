@@ -26,7 +26,7 @@ void check(T err, const char* const func, const char* const file, const int line
 constexpr double DT = 0.002;  // Шаг по времени
 constexpr int NT = 15000;  // Кол-во шагов по времени
 constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
-constexpr int N_OUT = 15;  // Вывод каждые N_OUT шагов
+constexpr int N_OUT = 15;  // Вывод каждые N_OUT шагов // 500 выводов
 
 double b = 0;  // Демпфирование скорости для настройки начального состояния
 // #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
@@ -42,19 +42,19 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 // Коэффициенты задачи
 #define m 7
 #define gamma0 4.32e-12
-#define chi 4 // 0: 20.0, 1: 40, 2: 8, 3: 4
+#define chi 5.6 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
 #define E0 0.0
 //#define omega 5.0e14
 //#define omega0 1.0e14
 #define Kb 1.38e-16
 #define T 77.0
-#define a_eq 1 // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1
+#define a_eq (0.323*0.323) // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323)
 #define b_eq 2.0
 #define F 0
 #define F0 1.0
 #define S_MAX 7
 #define ALPHA_MAX 9
-#define R -0.5*gamma0 // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+#define R (-0.5*gamma0) // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 #define Q R
 #define D (-Q)
 
