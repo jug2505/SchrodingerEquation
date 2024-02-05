@@ -26,7 +26,9 @@ void check(T err, const char* const func, const char* const file, const int line
 constexpr double DT = 0.002;  // Шаг по времени
 constexpr int NT = 15000;  // Кол-во шагов по времени
 constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
-constexpr int N_OUT = 15;  // Вывод каждые N_OUT шагов // 500 выводов
+constexpr int N_OUT = 15;  // Вывод каждые N_OUT шагов // 1000 выводов
+constexpr int N_PROGRESS = 10;
+constexpr int PROGRESS_STEP = NT / N_PROGRESS;
 
 double b = 0;  // Демпфирование скорости для настройки начального состояния
 // #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
@@ -53,7 +55,7 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 #define F 0
 #define F0 1.0
 #define S_MAX 7
-#define ALPHA_MAX 9
+#define ALPHA_MAX 10
 #define R (-0.5*gamma0) // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 #define Q R
 #define D (-Q)
@@ -319,7 +321,7 @@ __global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, d
 
     // Давление от нелинейности
     double sum_nl = 0.0;
-    for (int alpha = 1; alpha <= 9; alpha++) {
+    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
         double l_sum = 0.0;
         for (int l = 1; l <= 5; l++) {
             l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l) * pow(rho[i], l + 1);
@@ -451,6 +453,8 @@ void compute() {
     }
     cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
 
+    double a0 = 0.0;
+    double a1 = 0.0;
     // Вычисление G_alpha_s
     for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
         double sum_s = 0.0;
@@ -458,8 +462,12 @@ void compute() {
             sum_s += G(alpha, s);
         }
         G_s_sum_array[alpha - 1] = sum_s;
+        a0 += sum_s * alpha;
+        a1 -= sum_s * alpha * alpha * alpha / 8.0;
     }
     cudaMemcpy(G_s_sum_array_dev, G_s_sum_array, ALPHA_MAX * sizeof(double), cudaMemcpyHostToDevice);
+    cout << "SPH a0 = " << a0 << endl;
+    cout << "SPH a1 = " << a1 << endl;
 
     // Инициализация плотности, давления и ускорения
     density(x, rho);
@@ -500,7 +508,11 @@ void compute() {
         if (i >= 0) {
             t = t + DT;
         }
-        cout << "SPH t steps: " << i << "/"<< NT << endl;
+
+        if ((i % PROGRESS_STEP) == 0) {
+            int progress = (i / PROGRESS_STEP) + 1;
+            cout << "SPH Progress: " << progress << "/" << N_PROGRESS << endl;
+        }
 
         if (i == -1) {
             for (int j = 0; j < N; j++) {
