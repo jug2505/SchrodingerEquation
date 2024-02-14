@@ -55,6 +55,7 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 #define F 0
 #define F0 1.0
 #define S_MAX 7
+#define m S_MAX
 #define ALPHA_MAX 10
 #define R (-0.5*gamma0) // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 #define Q R
@@ -67,6 +68,7 @@ const int num_splits = 10000;
 // Кэш
 map<pair<int, int>, double> G_alpha_s_cache;
 map<pair<int, int>, double> delta_alpha_s_cache;
+map<int, double> G_alpha_cache;
 
 // Данные на GPU
 double *x_dev, *xx_dev, *rho_dev, *drho_dev, *ddrho_dev, *P_dev, *u_dev, *a_dev, *mass_dev, *G_s_sum_array_dev, *P_NL_dev;
@@ -142,11 +144,12 @@ __host__ __device__ double factorial(const int n) {
 }
 
 __host__ double F_func(const double p, const double s) {
-    return 2.0 * D * gamma0 * (cos(2.0 * a_eq * p / 3.0) + 2.0  * cos(a_eq * p / 3.0) * cos(M_PI * s / m));
+    //return 2.0 * gamma0 * D * (cos(2.0 * a_eq * p / 3.0) + 2.0  * cos(a_eq * p / 3.0) * cos(M_PI * s / m));
+    return 2.0 * gamma0 * D * (cos(2.0 * p / 3.0) + 2.0 * cos(p / 3.0) * cos(M_PI * s / m));
 }
 
 __host__ double eps(const double p, const double s) {
-    return gamma0 * sqrt(1.0 + 4.0 * cos(a_eq * p) * cos(M_PI * (s + F/F0) / m) + 4.0 * cos(M_PI * (s + F/F0) / m) * cos(M_PI * (s + F/F0) / m));
+    return gamma0 * sqrt(1.0 + 4.0 * cos(p) * cos(M_PI * s / m) + 4.0 * cos(M_PI * s / m) * cos(M_PI * s / m));
 }
 
 __host__ double eps_imp(const double p, const double s) {
@@ -178,12 +181,12 @@ __host__ double delta(const int alpha, const int s) {
     return result;
 }
 
-__host__ double GNominatorUnderIntegral(double r, double alpha, double s) {
-    double sum = 0.0;
-    for (int i = 1; i <= 9; i++) {
-        sum += delta(i, s) * cos(i * r) / (Kb * T);
+__host__ double GNominatorUnderIntegral(double p, double alpha, double s) {
+    double sum = delta(0, s) / (2.0 * Kb * T);
+    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+        sum += delta(alpha, s) * cos(alpha * p) / (Kb * T);
     }
-    return cos(alpha * r) * exp(-sum);
+    return cos(alpha * p) / (1.0 + exp(sum));
 }
 
 __host__ double simpsonIntegralGNominator(const double a, const double b, const int n, double alpha, double s) {
@@ -197,12 +200,12 @@ __host__ double simpsonIntegralGNominator(const double a, const double b, const 
     return simpson_integral;
 }
 
-__host__ double simpsonIntegralGDenominator(double r, double alpha, double s_idx) {
-    double sum = 0.0;
-    for (int i = 1; i <= 9; i++) {
-        sum += delta(i, s_idx) * cos(i * r) / (Kb * T);
+__host__ double simpsonIntegralGDenominator(double p, double alpha, double s) {
+    double sum = delta(0, s) / (2.0 * Kb * T);
+    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+        sum += delta(alpha, s) * cos(alpha * p) / (Kb * T);
     }
-    return exp(-sum);
+    return 1.0 / ( 1.0 + exp(sum));
 }
 
 __host__ double simpsonIntegralGDenominator(const double a, const double b, const int n, double alpha, double s) {
@@ -214,6 +217,22 @@ __host__ double simpsonIntegralGDenominator(const double a, const double b, cons
         simpson_integral += (x2-x1)/6.0*(simpsonIntegralGDenominator(x1, alpha, s) + 4.0*simpsonIntegralGDenominator(0.5*(x1+x2), alpha, s) + simpsonIntegralGDenominator(x2, alpha, s));
     }
     return simpson_integral;
+}
+
+__host__ double G(const int alpha) {
+    if (G_alpha_cache.find(alpha) != G_alpha_cache.end()) {
+        return G_alpha_cache[alpha];
+    }
+    double nominator = 0.0;
+    double denomindator = 0.0;
+    for(int s = 1; s <= m; s++) {
+        nominator += delta(alpha, s) / gamma0 * simpsonIntegralGNominator(-M_PI, M_PI, num_splits, alpha, s);
+        denomindator += simpsonIntegralGDenominator(-M_PI, M_PI, num_splits, alpha, s);
+    }
+    double result = -alpha * nominator / denominator;
+    G_alpha_cache[alpha] = result;
+    cout << "G_alpha alpha = " << alpha << " cached" << endl;
+    return result;
 }
 
 __host__ double G(const int alpha, const int s) {
@@ -455,16 +474,24 @@ void compute() {
 
     double a0 = 0.0;
     double a1 = 0.0;
-    // Вычисление G_alpha_s
+    // Вычисление G_alpha
     for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
-        double sum_s = 0.0;
-        for(int s = 1; s <= S_MAX; s++) {
-            sum_s += G(alpha, s);
-        }
-        G_s_sum_array[alpha - 1] = sum_s;
-        a0 += sum_s * alpha;
-        a1 -= sum_s * alpha * alpha * alpha / 8.0;
+        G_alpha = G(alpha);
+        G_s_sum_array[alpha - 1] = G_alpha;
+        a0 += G_alpha * alpha;
+        a1 -= G_alpha * alpha * alpha * alpha / 8.0;
     }
+
+    // Вычисление G_alpha_s
+    // for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+    //     double sum_s = 0.0;
+    //     for(int s = 1; s <= S_MAX; s++) {
+    //         sum_s += G(alpha, s);
+    //     }
+    //     G_s_sum_array[alpha - 1] = sum_s;
+    //     a0 += sum_s * alpha;
+    //     a1 -= sum_s * alpha * alpha * alpha / 8.0;
+    // }
     cudaMemcpy(G_s_sum_array_dev, G_s_sum_array, ALPHA_MAX * sizeof(double), cudaMemcpyHostToDevice);
     cout << "SPH a0 = " << a0 << endl;
     cout << "SPH a1 = " << a1 << endl;
