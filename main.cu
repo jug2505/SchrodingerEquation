@@ -42,7 +42,6 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 #define GRID_SIZE ((N + BLOCK_SIZE - 1) / BLOCK_SIZE)
 
 // Коэффициенты задачи
-#define m 7
 #define gamma0 4.32e-12
 #define chi 5.6 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
 #define E0 0.0
@@ -57,13 +56,13 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 #define S_MAX 7
 #define m S_MAX
 #define ALPHA_MAX 10
-#define R (-0.5*gamma0) // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+#define R 0.0 // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 #define Q R
 #define D (-Q)
 
 // Кол-во разбиений для интеграла
 //const int num_splits = 100000;
-const int num_splits = 10000;
+const int num_splits = 100000;
 
 // Кэш
 map<pair<int, int>, double> G_alpha_s_cache;
@@ -183,7 +182,7 @@ __host__ double delta(const int alpha, const int s) {
 
 __host__ double GNominatorUnderIntegral(double p, double alpha, double s) {
     double sum = delta(0, s) / (2.0 * Kb * T);
-    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+    for (double alpha = 1.0; alpha <= ALPHA_MAX; alpha++) {
         sum += delta(alpha, s) * cos(alpha * p) / (Kb * T);
     }
     return cos(alpha * p) / (1.0 + exp(sum));
@@ -202,7 +201,7 @@ __host__ double simpsonIntegralGNominator(const double a, const double b, const 
 
 __host__ double simpsonIntegralGDenominator(double p, double alpha, double s) {
     double sum = delta(0, s) / (2.0 * Kb * T);
-    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+    for (double alpha = 1.0; alpha <= ALPHA_MAX; alpha++) {
         sum += delta(alpha, s) * cos(alpha * p) / (Kb * T);
     }
     return 1.0 / ( 1.0 + exp(sum));
@@ -224,12 +223,12 @@ __host__ double G(const int alpha) {
         return G_alpha_cache[alpha];
     }
     double nominator = 0.0;
-    double denomindator = 0.0;
-    for(int s = 1; s <= m; s++) {
+    double denominator = 0.0;
+    for(double s = 1.0; s <= m; s++) {
         nominator += delta(alpha, s) / gamma0 * simpsonIntegralGNominator(-M_PI, M_PI, num_splits, alpha, s);
-        denomindator += simpsonIntegralGDenominator(-M_PI, M_PI, num_splits, alpha, s);
+        denominator += simpsonIntegralGDenominator(-M_PI, M_PI, num_splits, alpha, s);
     }
-    double result = -alpha * nominator / denominator;
+    double result = -alpha * (nominator / denominator);
     G_alpha_cache[alpha] = result;
     cout << "G_alpha alpha = " << alpha << " cached" << endl;
     return result;
@@ -476,7 +475,7 @@ void compute() {
     double a1 = 0.0;
     // Вычисление G_alpha
     for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
-        G_alpha = G(alpha);
+        double G_alpha = G(alpha);
         G_s_sum_array[alpha - 1] = G_alpha;
         a0 += G_alpha * alpha;
         a1 -= G_alpha * alpha * alpha * alpha / 8.0;
