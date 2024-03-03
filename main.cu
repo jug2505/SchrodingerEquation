@@ -43,20 +43,21 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // Коэффициенты задачи
 #define gamma0 4.32e-12
-#define chi 5.6 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
+#define chi 14.085//28.17 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
 #define E0 0.0
 //#define omega 5.0e14
 //#define omega0 1.0e14
 #define Kb 1.38e-16
 #define T 77.0
-#define a_eq (0.323*0.323) // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323)
+#define a_eq (0.0065*0.0065) // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323)
 #define b_eq 2.0
 #define F 0
 #define F0 1.0
 #define S_MAX 7
 #define m S_MAX
 #define ALPHA_MAX 10
-#define R 0.0 // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+#define L_MAX 5
+#define R (-0.25*gamma0) // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 #define Q R
 #define D (-Q)
 
@@ -341,10 +342,10 @@ __global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, d
     double sum_nl = 0.0;
     for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
         double l_sum = 0.0;
-        for (int l = 1; l <= 5; l++) {
-            l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l) * pow(rho[i], l + 1);
+        for (int l = 0; l <= L_MAX; l++) {
+            l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[i], l + 1);
         }
-        sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
+        sum_nl += G_s_sum_array[alpha - 1] * l_sum;
     }
     P_NL[i] = - 1.0 / (2.0 * chi * chi) * sum_nl;
     //printf("%lf\n", P_NL[i]);
