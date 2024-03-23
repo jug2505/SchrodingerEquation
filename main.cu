@@ -32,7 +32,7 @@ constexpr int PROGRESS_STEP = NT / N_PROGRESS;
 
 double b = 0;  // Демпфирование скорости для настройки начального состояния
 // #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
-#define h (40.0 * CENT_COEF / N)  // Расстояние сглаживания
+#define H_INIT (40.0 * CENT_COEF / N)  // Расстояние сглаживания
 constexpr double xStart = -10.0;
 constexpr double xEnd = 10.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
@@ -43,13 +43,13 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // Коэффициенты задачи
 #define gamma0 4.32e-12
-#define chi 14.085//28.17 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
+#define chi 8 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
 #define E0 0.0
 //#define omega 5.0e14
 //#define omega0 1.0e14
 #define Kb 1.38e-16
 #define T 77.0
-#define a_eq (0.0065*0.0065) // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323)
+#define a_eq (0.00016*0.00016)  // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323) (0.0065*0.0065)
 #define b_eq 2.0
 #define F 0
 #define F0 1.0
@@ -57,7 +57,7 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 #define m S_MAX
 #define ALPHA_MAX 10
 #define L_MAX 5
-#define R (-0.25*gamma0) // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+#define R 0 // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 #define Q R
 #define D (-Q)
 
@@ -71,9 +71,9 @@ map<pair<int, int>, double> delta_alpha_s_cache;
 map<int, double> G_alpha_cache;
 
 // Данные на GPU
-double *x_dev, *xx_dev, *rho_dev, *drho_dev, *ddrho_dev, *P_dev, *u_dev, *a_dev, *mass_dev, *G_s_sum_array_dev, *P_NL_dev;
+double *x_dev, *xx_dev, *rho_dev, *drho_dev, *ddrho_dev, *P_dev, *u_dev, *a_dev, *mass_dev, *G_s_sum_array_dev, *P_NL_dev, *h_dev;
 // Данные на CPU
-double *x, *u, *rho, *drho, *ddrho, *P, *a, *xx, *probe_rho, *u_mhalf, *u_phalf, *mass, *G_s_sum_array, *test_init_rho, *P_NL;
+double *x, *u, *rho, *drho, *ddrho, *P, *a, *xx, *probe_rho, *u_mhalf, *u_phalf, *mass, *G_s_sum_array, *test_init_rho, *P_NL, *h;
 
 void init() {
     x = new double[N];
@@ -91,6 +91,7 @@ void init() {
     G_s_sum_array = new double[ALPHA_MAX];
     test_init_rho = new double[N];
     P_NL = new double[N];
+    h = new double[N];
 
     cudaMalloc(&x_dev, N * sizeof(double));
     cudaMalloc(&xx_dev, N * sizeof(double));
@@ -103,6 +104,7 @@ void init() {
     cudaMalloc(&mass_dev, N * sizeof(double));
     cudaMalloc(&G_s_sum_array_dev, ALPHA_MAX * sizeof(double));
     cudaMalloc(&P_NL_dev, N * sizeof(double));
+    cudaMalloc(&h_dev, N * sizeof(double));
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -265,67 +267,125 @@ __host__ __device__ double fl(double l) {
     return pow(-1, l) / (factorial(l) * pow(2, 2 * l) * tgamma(l + 2));
 }
 
+
+//__device__ double kernelDeriv0(double r, double h) {
+//    double e = abs(r) / h;
+//    double w = 2.0 / (3.0 * h);
+//    if (r >= 0.0 && r < 1.0) {
+//        w = w * (1.0 - 1.5*e*e + 0.75*e*e*e);
+//    } else if (r >= 1 && r < 2) {
+//        w = w * (0.25 * (2.0 - e) * (2.0 - e) * (2.0 - e));
+//    } else {
+//        w = 0.0;
+//    }
+//    return w;
+//}
+//__device__ double kernelDeriv1(double r, double h) {
+//    double e = abs(r) / h;
+//    double w = 2.0 / (3.0 * h);
+//    if (r >= 0.0 && r < 1.0) {
+//        w = w * ( 2.25*e*e - 3.0*e);
+//    } else if (r >= 1 && r < 2) {
+//        w = w * (-0.75 * (2.0 - e) * (2.0 - e));
+//    } else {
+//        w = 0.0;
+//    }
+//    return w;
+//}
+//__device__ double kernelDeriv2(double r, double h) {
+//    double e = abs(r) / h;
+//    double w = 2.0 / (3.0 * h);
+//
+//    if (r >= 0.0 && r < 1.0) {
+//        w = w * (4.5*e - 3.0);
+//    } else if (r >= 1 && r < 2) {
+//        w = w * (3.0 - 1.5 * e);
+//    } else {
+//        w = 0.0;
+//    }
+//    return w;
+//}
+
+
 /* Гауссово сглаживающее ядро SPH (1D) */
-__device__ double kernelDeriv0(double r) {
+__device__ double kernelDeriv0(double r, double h) {
     return 1.0 / h / SQRT_M_PI * exp(- r * r / (h * h));
 }
-__device__ double kernelDeriv1(double r) {
+__device__ double kernelDeriv1(double r, double h) {
     return pow(h, -3) / SQRT_M_PI * exp(- r * r / (h * h)) * (-2.0 * r);
 }
-__device__ double kernelDeriv2(double r) {
+__device__ double kernelDeriv2(double r, double h) {
     return pow(h, -5) / SQRT_M_PI * exp(-r * r / (h * h)) * (4.0 * r * r - 2.0 * h * h);
 }
-__device__ double kernelDeriv3(double r) {
+__device__ double kernelDeriv3(double r, double h) {
     return pow(h, -7) / sqrt(M_PI) * exp(-pow(r, 2) / pow(h, 2)) * (-8.0 * pow(r, 3) + 12.0 * pow(h, 2) * r);
 }
 
-__global__ void densityKernel(double* x, double* mass, double* rho) {
+__global__ void densityKernel(double* x, double* mass, double* h, double* rho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += mass[j] * kernelDeriv0(uij);
+        double hij = (h[i] + h[j]) / 2.0;
+        sum += mass[j] * kernelDeriv0(uij, hij);
     }
     rho[i] = sum;
+}
+
+__global__ void computeHKernel(double* mass, double* rho, double* h) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N) return;
+
+    h[i] = 1.3 * mass[i] / rho[i];
 }
 
 /* Вычисление плотности в каждом из мест расположения частиц с помощью сглаживающего ядра */
 __host__ void density(double* x, double* rho) {
     cudaMemcpy(x_dev, x, N * sizeof(double), cudaMemcpyHostToDevice);
 
-    densityKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, rho_dev);
+    densityKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, h_dev, rho_dev);
 
     cudaMemcpy(rho, rho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void pressureKernelDRho(double* x, double* mass, double* drho) {
+__host__ void computeH(double* rho) {
+    computeHKernel<<<GRID_SIZE, BLOCK_SIZE>>>(mass_dev, rho_dev, h_dev);
+    cudaDeviceSynchronize();
+    cudaMemcpy(h, h_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
+
+    checkCudaErrors(cudaGetLastError());
+}
+
+__global__ void pressureKernelDRho(double* x, double* mass, double* h, double* drho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += mass[j] * kernelDeriv1(uij);
+        double hij = (h[i] + h[j]) / 2.0;
+        sum += mass[j] * kernelDeriv1(uij, hij);
     }
     drho[i] = sum;
 }
 
-__global__ void pressureKernelDDRho(double* x, double* mass, double* ddrho) {
+__global__ void pressureKernelDDRho(double* x, double* mass, double* h, double* ddrho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += mass[j] * kernelDeriv2(uij);
+        double hij = (h[i] + h[j]) / 2.0;
+        sum += mass[j] * kernelDeriv2(uij, hij);
     }
     ddrho[i] = sum;
 }
 
-__global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, double* rho, double* drho, double* ddrho, double* P, double* P_NL) {
+__global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, double* rho, double* drho, double* ddrho, double* P, double* h, double* P_NL) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
@@ -334,7 +394,8 @@ __global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, d
     // Обычное давление
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * mass[j] / rho[j] * kernelDeriv0(uij) / (chi * chi);
+        double hij = (h[i] + h[j]) / 2.0;
+        sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * mass[j] / rho[j] * kernelDeriv0(uij, hij) / (chi * chi);
     }
     P[i] = sum;
 
@@ -358,19 +419,19 @@ __host__ void pressure(double* x, double* rho, double* P, double* P_NL) {
     cudaMemcpy(x_dev, x, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(rho_dev, rho, N * sizeof(double), cudaMemcpyHostToDevice);
 
-    pressureKernelDRho<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, drho_dev);
-    pressureKernelDDRho<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, ddrho_dev);
+    pressureKernelDRho<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, h_dev, drho_dev);
+    pressureKernelDDRho<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, h_dev, ddrho_dev);
 
     cudaMemcpy(drho, drho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(ddrho, ddrho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
 
-    pressureKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, G_s_sum_array_dev, rho_dev, drho_dev, ddrho_dev, P_dev, P_NL_dev);
+    pressureKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, G_s_sum_array_dev, rho_dev, drho_dev, ddrho_dev, P_dev, h_dev, P_NL_dev);
     cudaMemcpy(P, P_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(P_NL, P_NL_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void accelerationKernel(double* x, double* mass, double* G_s_sum_array, double* u, double* rho, double* P, double* P_NL, double b, double* a) {
+__global__ void accelerationKernel(double* x, double* mass, double* G_s_sum_array, double* u, double* rho, double* P, double* P_NL, double b, double* h, double* a) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
@@ -380,7 +441,8 @@ __global__ void accelerationKernel(double* x, double* mass, double* G_s_sum_arra
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
-        sum += -mass[j] * (P_NL[i] / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij);
+        double hij = (h[i] + h[j]) / 2.0;
+        sum += -mass[j] * (P_NL[i] / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, hij);
     }
     a[i] = sum;
 }
@@ -393,7 +455,7 @@ __host__ void acceleration(double* x, double* u, double* rho, double* P, double*
     cudaMemcpy(P_dev, P, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(P_NL_dev, P_NL, N * sizeof(double), cudaMemcpyHostToDevice);
 
-    accelerationKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, G_s_sum_array_dev, u_dev, rho_dev, P_dev, P_NL_dev, b, a_dev);
+    accelerationKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, G_s_sum_array_dev, u_dev, rho_dev, P_dev, P_NL_dev, b, h_dev, a_dev);
 
     cudaMemcpy(a, a_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
@@ -406,7 +468,7 @@ __global__ void probeDensityKernel(double* x, double* mass, double* xx, double* 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = xx[i] - x[j];
-        sum += mass[j] * kernelDeriv0(uij);
+        sum += mass[j] * kernelDeriv0(uij, H_INIT);
     }
     rho[i] = sum;
 }
@@ -468,9 +530,16 @@ void compute() {
     double v0 = (xStart + xEnd) / 2.0;
     for (int i = 0; i < N; i++) {
         mass[i] = xStep * a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq)); // TODO
+        //cout << mass[i] << endl;
         // test_init_rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
     }
     cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
+
+    // Инициализация сглаживающего расстояния
+    for (int i = 0; i < N; i++) {
+        h[i] = H_INIT;
+    }
+    cudaMemcpy(h_dev, h, N * sizeof(double), cudaMemcpyHostToDevice);
 
     double a0 = 0.0;
     double a1 = 0.0;
@@ -498,6 +567,7 @@ void compute() {
 
     // Инициализация плотности, давления и ускорения
     density(x, rho);
+    computeH(rho);
     pressure(x, rho, P, P_NL);
     acceleration(x, u, rho, P, P_NL, b, a);
 
@@ -517,9 +587,13 @@ void compute() {
     for (int i = -NT_SETUP; i < NT; i++) {
         // Вывод в файлы
         if (i >= 0 && i % N_OUT == 0) {
-            probeDensity(x, xx, probe_rho);
+//            probeDensity(x, xx, probe_rho);
+//            for (int j = 0; j < N; j++) {
+//                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
+//                //outfile_start << xx[j] << " " << test_init_rho[j] << endl;
+//            }
             for (int j = 0; j < N; j++) {
-                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
+                outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl; // TODO
                 //outfile_start << xx[j] << " " << test_init_rho[j] << endl;
             }
         }
@@ -550,6 +624,7 @@ void compute() {
 
         // Обновление плотностей, давлений, ускорений
         density(x, rho);
+        computeH(rho);
         pressure(x, rho, P, P_NL);
         acceleration(x, u, rho, P, P_NL, b, a);
     }
