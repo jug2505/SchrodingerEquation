@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
+#include <nlohmann/json.hpp>
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
