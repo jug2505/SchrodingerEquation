@@ -9,8 +9,8 @@
 #include <map>
 
 using namespace std;
+using json = nlohmann::json;
 
-#define SQRT_M_PI 1.77245385091
 #define checkCudaErrors(val) check( (val), #val, __FILE__, __LINE__)
 template<typename T>
 void check(T err, const char* const func, const char* const file, const int line) {
@@ -21,56 +21,44 @@ void check(T err, const char* const func, const char* const file, const int line
     }
 }
 
-enum class Type{
-            DEATH,
-            FLEX,
-            SOLID
-        };
+enum class Type{ FLEX, SOLID };
+
+#define SQRT_M_PI 1.77245385091
 
 // Настройка SPH
-#define N 500
-#define LAYER_LENGTH 25
-#define CENT_COEF 5
-constexpr double DT = 0.002;  // Шаг по времени
-constexpr int NT = 30;  // Кол-во шагов по времени
-constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
-constexpr int N_OUT = 1;  // Вывод каждые N_OUT шагов // 1000 выводов
-constexpr int N_PROGRESS = 10;
-constexpr int PROGRESS_STEP = NT / N_PROGRESS;
+int N = 68;
+int LAYER_LENGTH = 0;
+double H_DEFAULT = 0.4;
+double DT = 0.02;  // Шаг по времени
+int NT = 100;  // Кол-во шагов по времени
+int NT_SETUP = 400;  // Кол-во шагов на настройку
+int N_OUT = 1;  // Вывод каждые N_OUT шагов // 1000 выводов
+N_PROGRESS = 10;
+PROGRESS_STEP = NT / N_PROGRESS;
 
-double b = 0;  // Демпфирование скорости для настройки начального состояния
-// #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
-#define H_INIT (40.0 * CENT_COEF / N)  // Расстояние сглаживания
-constexpr double xStart = -10.0;
-constexpr double xEnd = 10.0;
-constexpr double xStep = (xEnd - xStart) / (N - 1);
+double b = 4;  // Демпфирование скорости для настройки начального состояния
+double xStart = -3.0;
+double xEnd = 3.0;
+double xStep = (xEnd - xStart) / (N - 1);
 
 // Настройка CUDA
 #define BLOCK_SIZE 32
 #define GRID_SIZE ((N + BLOCK_SIZE - 1) / BLOCK_SIZE)
 
 // Коэффициенты задачи
-#define gamma0 4.32e-12
-#define chi 5.6 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
-#define E0 0.0
-//#define omega 5.0e14
-//#define omega0 1.0e14
-#define Kb 1.38e-16
-#define T 77.0
-#define a_eq (0.323*0.323)  // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323) (0.0065*0.0065)
-#define b_eq 2.0
-#define F 0
-#define F0 1.0
-#define S_MAX 7
-#define m S_MAX
-#define ALPHA_MAX 10
-#define L_MAX 5
-#define R 0 // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
-#define Q R
-#define D (-Q)
+double gamma0 = 4.32e-12;
+double Kb = 1.38e-16;
+double chi = 5.6; // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
+double a_eq = (0.323*0.323);  // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323) (0.0065*0.0065)
+double b_eq = 2.0;
+int m = 7;
+int ALPHA_MAX = 10;
+int L_MAX = 5;
+double R = 0.0; // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+double Q = R;
+double D = -Q;
 
 // Кол-во разбиений для интеграла
-//const int num_splits = 100000;
 const int num_splits = 100000;
 
 // Кэш
@@ -162,7 +150,6 @@ __host__ __device__ double factorial(const int n) {
 }
 
 __host__ double F_func(const double p, const double s) {
-    //return 2.0 * gamma0 * D * (cos(2.0 * a_eq * p / 3.0) + 2.0  * cos(a_eq * p / 3.0) * cos(M_PI * s / m));
     return 2.0 * gamma0 * D * (cos(2.0 * p / 3.0) + 2.0 * cos(p / 3.0) * cos(M_PI * s / m));
 }
 
@@ -253,32 +240,6 @@ __host__ double G(const int alpha) {
     return result;
 }
 
-__host__ double G(const int alpha, const int s) {
-    if (G_alpha_s_cache.find({alpha, s}) != G_alpha_s_cache.end()) {
-        return G_alpha_s_cache[{alpha, s}];
-    }
-
-    double nominator = simpsonIntegralGNominator(-M_PI, M_PI, num_splits, alpha, s);
-
-    double denominator = 0.0;
-    for (int s_idx = 1; s_idx <= 7; s_idx++) {
-        denominator += simpsonIntegralGDenominator(-M_PI, M_PI, num_splits, alpha, s_idx);
-    }
-    double result = -alpha * delta(alpha, s) * nominator / (gamma0 * denominator);
-    G_alpha_s_cache[{alpha, s}] = result;
-    cout << "G_alpha_s alpha = " << alpha << ", s = " << s << " cached" << endl;
-
-    return result;
-}
-
-__host__ double G1(const int alpha, const int s, const double t_value) {
-    return G(alpha, s) * cos(alpha * E0 * t_value * 0.0001);
-}
-
-__host__ double G2(const int alpha, const int s, const double t_value) {
-    return G(alpha, s) * sin(alpha * E0 * t_value * 0.0001);
-}
-
 __host__ __device__ double fl(double l) {
     return pow(-1, l) / (factorial(l) * pow(2, 2 * l) * tgamma(l + 2));
 }
@@ -353,13 +314,6 @@ __global__ void densityKernel(double* x, double* mass, double* h, Type* particle
     h[i] = 1.3 * mass[i] / rho[i];
 }
 
-__global__ void computeHKernel(double* mass, double* rho, double* h) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= N) return;
-
-    h[i] = 1.3 * mass[i] / rho[i];
-}
-
 /* Вычисление плотности в каждом из мест расположения частиц с помощью сглаживающего ядра */
 __host__ void density(double* x, double* rho) {
     cudaMemcpy(x_dev, x, N * sizeof(double), cudaMemcpyHostToDevice);
@@ -367,14 +321,6 @@ __host__ void density(double* x, double* rho) {
     densityKernel<<<GRID_SIZE, BLOCK_SIZE>>>(x_dev, mass_dev, h_dev, particles_type_dev, rho_dev);
 
     cudaMemcpy(rho, rho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
-    checkCudaErrors(cudaGetLastError());
-}
-
-__host__ void computeH(double* rho) {
-    computeHKernel<<<GRID_SIZE, BLOCK_SIZE>>>(mass_dev, rho_dev, h_dev);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h, h_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
-
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -492,7 +438,7 @@ __global__ void probeDensityKernel(double* x, double* mass, double* xx, double* 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = xx[i] - x[j];
-        sum += mass[j] * kernelDeriv0(uij, H_INIT);
+        sum += mass[j] * kernelDeriv0(uij, H_DEFAULT);
     }
     rho[i] = sum;
 }
@@ -535,81 +481,9 @@ void getCudaInfo() {
 }
 
 
-void compute() {
-    getCudaInfo();
-    init();
-
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    cudaEventRecord(start, 0);
-
-    // Инициализация положений и скоростей частиц
-    for (int i = 0; i < N; i++) {
-        x[i] = xStart + i * xStep;
-        xx[i] = x[i]; // Для графика
-    }
-
-    double v0 = (xStart + xEnd) / 2.0;
-    for (int i = 0; i < N; i++) {
-        if (i < LAYER_LENGTH || i > N - LAYER_LENGTH) {
-            rho[i] = a_eq;
-            particles_type[i] = Type::SOLID;
-        } else {
-            rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
-            particles_type[i] = Type::FLEX;
-        }
-        mass[i] = xStep * rho[i];
-        h[i] = 1.3 * mass[i] / rho[i];
-        //cout << mass[i] << endl;
-        // test_init_rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
-    }
-    cudaMemcpy(rho_dev, rho, N * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(particles_type_dev, particles_type, N * sizeof(Type), cudaMemcpyHostToDevice);
-
-
-    // Инициализация масс частиц
-//    double v0 = (xStart + xEnd) / 2.0;
-//    for (int i = 0; i < N; i++) {
-//        mass[i] = xStep * a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq)); // TODO
-//        //cout << mass[i] << endl;
-//        // test_init_rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
-//    }
-    cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
-
-    // Инициализация сглаживающего расстояния
-//    for (int i = 0; i < N; i++) {
-//        h[i] = H_INIT;
-//    }
-    cudaMemcpy(h_dev, h, N * sizeof(double), cudaMemcpyHostToDevice);
-
-    double a0 = 0.0;
-    double a1 = 0.0;
-    // Вычисление G_alpha
-    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
-        double G_alpha = G(alpha);
-        G_s_sum_array[alpha - 1] = G_alpha;
-        a0 += G_alpha * alpha;
-        a1 -= G_alpha * alpha * alpha * alpha / 8.0;
-    }
-
-    // Вычисление G_alpha_s
-    // for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
-    //     double sum_s = 0.0;
-    //     for(int s = 1; s <= S_MAX; s++) {
-    //         sum_s += G(alpha, s);
-    //     }
-    //     G_s_sum_array[alpha - 1] = sum_s;
-    //     a0 += sum_s * alpha;
-    //     a1 -= sum_s * alpha * alpha * alpha / 8.0;
-    // }
-    cudaMemcpy(G_s_sum_array_dev, G_s_sum_array, ALPHA_MAX * sizeof(double), cudaMemcpyHostToDevice);
-    cout << "SPH a0 = " << a0 << endl;
-    cout << "SPH a1 = " << a1 << endl;
-
+void compute(string filename) {
     // Инициализация плотности, давления и ускорения
     density(x, rho);
-//    computeH(rho);
     pressure(x, rho, P, P_NL);
     acceleration(x, u, rho, P, P_NL, b, a);
 
@@ -618,32 +492,35 @@ void compute() {
         u_mhalf[i] = u[i] - 0.5 * DT * a[i];
     }
 
-    ofstream outfile("solution_cuda.txt");
-    // ofstream outfile_start("start_cuda.txt");
+    ofstream outfile(filename);
     outfile << "X T Z" << endl;
-    // outfile_start << "X Z" << endl;
-
+    ofstream outfile_exact("exact_" + filename);
+    outfile << "X T Z" << endl;
 
     // Главный цикл по времени
     double t = 0.0;
     for (int i = -NT_SETUP; i < NT; i++) {
         // Вывод в файлы
         if (i >= 0 && i % N_OUT == 0) {
-//            probeDensity(x, xx, probe_rho);
-//            for (int j = 0; j < N; j++) {
-//                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
-//                //outfile_start << xx[j] << " " << test_init_rho[j] << endl;
-//            }
+            probeDensity(x, xx, probe_rho);
+            // for (int j = 0; j < N; j++) {
+            //     outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
+            // }
             for (int j = 0; j < N; j++) {
-                outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl; // TODO
-                //outfile_start << xx[j] << " " << test_init_rho[j] << endl;
+                outfile << xx[j] << " " << t << " " << probe_rho[j] << endl; // TODO
             }
+            for (int j = 0; j < N; j++) {
+                double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
+                outfile_exact << xx[j] << " " << t << " " << exact << endl;
+            }
+            // for (int j = 0; j < N; j++) {
+            //     outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl; // TODO
+            // }
         }
 
         // Leap frog
         for (int j = 0; j < N; j++) {
             if (particles_type[i] != Type::FLEX) continue;
-
             u_phalf[j] = u_mhalf[j] + a[j] * DT;
             x[j] = x[j] + u_phalf[j] * DT;
             u[j] = 0.5 * (u_mhalf[j] + u_phalf[j]);
@@ -668,27 +545,156 @@ void compute() {
 
         // Обновление плотностей, давлений, ускорений
         density(x, rho);
-//        computeH(rho);
         pressure(x, rho, P, P_NL);
         acceleration(x, u, rho, P, P_NL, b, a);
     }
     outfile.close();
-    //outfile_start.close();
+}
+
+class Solver {
+public:
+    static void solve_beam_equation() {
+        getCudaInfo();
+
+        ifstream configFile("../beam_conf.json");
+        json config = json::parse(configFile);
+        config.at("N").get_to(N);
+        config.at("SOLID_LAYER_LENGTH").get_to(SOLID_LAYER_LENGTH);
+        config.at("DT").get_to(DT);
+        config.at("NT").get_to(NT);
+        config.at("NT_SETUP").get_to(NT_SETUP);
+        config.at("N_OUT").get_to(N_OUT);
+        config.at("N_PROGRESS").get_to(N_PROGRESS);
+        config.at("b").get_to(b);
+        config.at("xStart").get_to(xStart);
+        config.at("xEnd").get_to(xEnd);
+        config.at("gamma0").get_to(gamma0);
+        config.at("Kb").get_to(Kb);
+        config.at("chi").get_to(chi);
+        config.at("a_eq").get_to(a_eq);
+        config.at("b_eq").get_to(b_eq);
+        config.at("m").get_to(m);
+        config.at("ALPHA_MAX").get_to(ALPHA_MAX);
+        config.at("L_MAX").get_to(L_MAX);
+        config.at("R").get_to(R);
+        config.at("Q").get_to(Q);
+        config.at("D").get_to(D);
+
+        init();
+
+        // Инициализация положений частиц
+        for (int i = 0; i < N; i++) {
+            x[i] = xStart + i * xStep;
+            xx[i] = x[i]; // Для графика
+        }
+
+        // Инициализация плотности, массы, сглаживающего расстояния
+        double v0 = (xStart + xEnd) / 2.0;
+        for (int i = 0; i < N; i++) {
+            if (i < LAYER_LENGTH || i > N - LAYER_LENGTH) {
+                rho[i] = a_eq;
+                particles_type[i] = Type::SOLID;
+            } else {
+                rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
+                particles_type[i] = Type::FLEX;
+            }
+            mass[i] = xStep * rho[i];
+            h[i] = 1.3 * mass[i] / rho[i];
+        }
+        cudaMemcpy(rho_dev, rho, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(particles_type_dev, particles_type, N * sizeof(Type), cudaMemcpyHostToDevice);
+        cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(h_dev, h, N * sizeof(double), cudaMemcpyHostToDevice);
+
+        // Вычисление G_alpha
+        double a0 = 0.0;
+        double a1 = 0.0;
+        for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+            double G_alpha = G(alpha);
+            G_s_sum_array[alpha - 1] = G_alpha;
+            a0 += G_alpha * alpha;
+            a1 -= G_alpha * alpha * alpha * alpha / 8.0;
+        }
+        cudaMemcpy(G_s_sum_array_dev, G_s_sum_array, ALPHA_MAX * sizeof(double), cudaMemcpyHostToDevice);
+        cout << "SPH a0 = " << a0 << endl;
+        cout << "SPH a1 = " << a1 << endl;
+        
+        compute("solution_cuda_beam.txt");
+        
+        clear();
+    }
+
+    static void solve_test_schrodinger() {
+        getCudaInfo();
+
+        ifstream configFile("../beam_conf.json");
+        json config = json::parse(configFile);
+        config.at("N").get_to(N);
+        config.at("SOLID_LAYER_LENGTH").get_to(SOLID_LAYER_LENGTH);
+        config.at("DT").get_to(DT);
+        config.at("NT").get_to(NT);
+        config.at("NT_SETUP").get_to(NT_SETUP);
+        config.at("N_OUT").get_to(N_OUT);
+        config.at("N_PROGRESS").get_to(N_PROGRESS);
+        config.at("b").get_to(b);
+        config.at("xStart").get_to(xStart);
+        config.at("xEnd").get_to(xEnd);
+        config.at("gamma0").get_to(gamma0);
+        config.at("Kb").get_to(Kb);
+        config.at("chi").get_to(chi);
+        config.at("a_eq").get_to(a_eq);
+        config.at("b_eq").get_to(b_eq);
+        config.at("m").get_to(m);
+        config.at("ALPHA_MAX").get_to(ALPHA_MAX);
+        config.at("L_MAX").get_to(L_MAX);
+        config.at("R").get_to(R);
+        config.at("Q").get_to(Q);
+        config.at("D").get_to(D);
+
+        init();
+
+        // Инициализация положений частиц
+        for (int i = 0; i < N; i++) {
+            x[i] = xStart + i * xStep;
+            xx[i] = x[i]; // Для графика
+        }
+
+        // Инициализация плотности, массы, сглаживающего расстояния
+        double v0 = (xStart + xEnd) / 2.0;
+        for (int i = 0; i < N; i++) {
+            if (i < LAYER_LENGTH || i > N - LAYER_LENGTH) {
+                particles_type[i] = Type::SOLID;
+            } else {
+                particles_type[i] = Type::FLEX;
+            }
+            mass[i] = 1.0 / N;
+            h[i] = 0.4;
+        }
+        cudaMemcpy(particles_type_dev, particles_type, N * sizeof(Type), cudaMemcpyHostToDevice);
+        cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(h_dev, h, N * sizeof(double), cudaMemcpyHostToDevice);
+
+        compute("solution_cuda_test_schrodinger.txt");
+        
+        clear();
+    }
+}
+
+
+int main() {
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start, 0);
+
+    Solver::solve_test_schrodinger();
 
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     float elapsedTime;
     cudaEventElapsedTime(&elapsedTime, start, stop);
     printf("Время работы: %3.1f s\n", elapsedTime / 1000.0);
-
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
-
-    clear();
-}
-
-
-int main() {
-    compute();
     return 0;
 }
