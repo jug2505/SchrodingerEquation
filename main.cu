@@ -1,6 +1,5 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
-#include <nlohmann/json.hpp>
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
@@ -9,7 +8,6 @@
 #include <map>
 
 using namespace std;
-using json = nlohmann::json;
 
 #define checkCudaErrors(val) check( (val), #val, __FILE__, __LINE__)
 template<typename T>
@@ -26,15 +24,15 @@ enum class Type{ FLEX, SOLID };
 #define SQRT_M_PI 1.77245385091
 
 // Настройка SPH
-int N = 68;
-int LAYER_LENGTH = 0;
-double H_DEFAULT = 0.4;
+#define N 100
+int SOLID_LAYER_LENGTH = 0;
+#define H_DEFAULT 0.4
 double DT = 0.02;  // Шаг по времени
 int NT = 100;  // Кол-во шагов по времени
 int NT_SETUP = 400;  // Кол-во шагов на настройку
 int N_OUT = 1;  // Вывод каждые N_OUT шагов // 1000 выводов
-N_PROGRESS = 10;
-PROGRESS_STEP = NT / N_PROGRESS;
+int N_PROGRESS = 10;
+int PROGRESS_STEP = NT / N_PROGRESS;
 
 double b = 4;  // Демпфирование скорости для настройки начального состояния
 double xStart = -3.0;
@@ -48,7 +46,8 @@ double xStep = (xEnd - xStart) / (N - 1);
 // Коэффициенты задачи
 double gamma0 = 4.32e-12;
 double Kb = 1.38e-16;
-double chi = 5.6; // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
+double T = 77.0;
+#define chi 5.6 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
 double a_eq = (0.323*0.323);  // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323) (0.0065*0.0065)
 double b_eq = 2.0;
 int m = 7;
@@ -106,6 +105,8 @@ void init() {
     cudaMalloc(&h_dev, N * sizeof(double));
     cudaMalloc(&particles_type_dev, N * sizeof(Type));
     checkCudaErrors(cudaGetLastError());
+
+    PROGRESS_STEP = NT / N_PROGRESS;
 }
 
 void clear() {
@@ -310,8 +311,8 @@ __global__ void densityKernel(double* x, double* mass, double* h, Type* particle
         sum += mass[j] * kernelDeriv0(uij, hij);
     }
     rho[i] = sum;
-    __syncthreads();
-    h[i] = 1.3 * mass[i] / rho[i];
+    //__syncthreads();
+    //h[i] = 1.3 * mass[i] / rho[i];
 }
 
 /* Вычисление плотности в каждом из мест расположения частиц с помощью сглаживающего ядра */
@@ -363,7 +364,8 @@ __global__ void pressureKernel(double* x, double* mass, double* G_s_sum_array, d
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
         double hij = (h[i] + h[j]) / 2.0;
-        sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * mass[j] / rho[j] * kernelDeriv0(uij, hij) / (chi * chi);
+//        sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * mass[j] / rho[j] * kernelDeriv0(uij, hij) / (chi * chi);
+        sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) * mass[j] / rho[j] * kernelDeriv0(uij, hij);
     }
     P[i] = sum;
 
@@ -406,15 +408,18 @@ __global__ void accelerationKernel(double* x, double* mass, double* G_s_sum_arra
     if (particles_type[i] != Type::FLEX) return;
 
     // Дэмпирование и гармонический потенциал (0.5 x^2)
-    //a[i] = - u[i] * b - x[i];
+    a[i] = - u[i] * b - x[i];
 
     double sum = 0.0;
     for (int j = 0; j < N; j++) {
         double uij = x[i] - x[j];
         double hij = (h[i] + h[j]) / 2.0;
-        sum += -mass[j] * (P_NL[i] / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, hij);
+        sum += -mass[j] * (P[i] / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, hij);
+
+//        sum += -mass[j] * (P_NL[i] / (rho[i] * rho[i]) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, hij);
     }
-    a[i] = sum;
+    //a[i] = sum;
+    a[i] = a[i] + sum;
 }
 
 /* Расчёт ускорения каждой частицы под действием квантового давления, гармонического потенциала, демпфирования скорости */
@@ -495,29 +500,11 @@ void compute(string filename) {
     ofstream outfile(filename);
     outfile << "X T Z" << endl;
     ofstream outfile_exact("exact_" + filename);
-    outfile << "X T Z" << endl;
+    outfile_exact << "X T Z" << endl;
 
     // Главный цикл по времени
     double t = 0.0;
     for (int i = -NT_SETUP; i < NT; i++) {
-        // Вывод в файлы
-        if (i >= 0 && i % N_OUT == 0) {
-            probeDensity(x, xx, probe_rho);
-            // for (int j = 0; j < N; j++) {
-            //     outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
-            // }
-            for (int j = 0; j < N; j++) {
-                outfile << xx[j] << " " << t << " " << probe_rho[j] << endl; // TODO
-            }
-            for (int j = 0; j < N; j++) {
-                double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
-                outfile_exact << xx[j] << " " << t << " " << exact << endl;
-            }
-            // for (int j = 0; j < N; j++) {
-            //     outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl; // TODO
-            // }
-        }
-
         // Leap frog
         for (int j = 0; j < N; j++) {
             if (particles_type[i] != Type::FLEX) continue;
@@ -547,6 +534,24 @@ void compute(string filename) {
         density(x, rho);
         pressure(x, rho, P, P_NL);
         acceleration(x, u, rho, P, P_NL, b, a);
+
+        // Вывод в файлы
+        if (i >= 0 && i % N_OUT == 0) {
+            probeDensity(x, xx, probe_rho);
+            // for (int j = 0; j < N; j++) {
+            //     outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
+            // }
+            for (int j = 0; j < N; j++) {
+                outfile << xx[j] << " " << t << " " << probe_rho[j] << endl; // TODO
+            }
+            for (int j = 0; j < N; j++) {
+                double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
+                outfile_exact << xx[j] << " " << t << " " << exact << endl;
+            }
+            // for (int j = 0; j < N; j++) {
+            //     outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl; // TODO
+            // }
+        }
     }
     outfile.close();
 }
@@ -555,31 +560,6 @@ class Solver {
 public:
     static void solve_beam_equation() {
         getCudaInfo();
-
-        ifstream configFile("../beam_conf.json");
-        json config = json::parse(configFile);
-        config.at("N").get_to(N);
-        config.at("SOLID_LAYER_LENGTH").get_to(SOLID_LAYER_LENGTH);
-        config.at("DT").get_to(DT);
-        config.at("NT").get_to(NT);
-        config.at("NT_SETUP").get_to(NT_SETUP);
-        config.at("N_OUT").get_to(N_OUT);
-        config.at("N_PROGRESS").get_to(N_PROGRESS);
-        config.at("b").get_to(b);
-        config.at("xStart").get_to(xStart);
-        config.at("xEnd").get_to(xEnd);
-        config.at("gamma0").get_to(gamma0);
-        config.at("Kb").get_to(Kb);
-        config.at("chi").get_to(chi);
-        config.at("a_eq").get_to(a_eq);
-        config.at("b_eq").get_to(b_eq);
-        config.at("m").get_to(m);
-        config.at("ALPHA_MAX").get_to(ALPHA_MAX);
-        config.at("L_MAX").get_to(L_MAX);
-        config.at("R").get_to(R);
-        config.at("Q").get_to(Q);
-        config.at("D").get_to(D);
-
         init();
 
         // Инициализация положений частиц
@@ -591,7 +571,7 @@ public:
         // Инициализация плотности, массы, сглаживающего расстояния
         double v0 = (xStart + xEnd) / 2.0;
         for (int i = 0; i < N; i++) {
-            if (i < LAYER_LENGTH || i > N - LAYER_LENGTH) {
+            if (i < SOLID_LAYER_LENGTH || i > N - SOLID_LAYER_LENGTH) {
                 rho[i] = a_eq;
                 particles_type[i] = Type::SOLID;
             } else {
@@ -626,31 +606,6 @@ public:
 
     static void solve_test_schrodinger() {
         getCudaInfo();
-
-        ifstream configFile("../beam_conf.json");
-        json config = json::parse(configFile);
-        config.at("N").get_to(N);
-        config.at("SOLID_LAYER_LENGTH").get_to(SOLID_LAYER_LENGTH);
-        config.at("DT").get_to(DT);
-        config.at("NT").get_to(NT);
-        config.at("NT_SETUP").get_to(NT_SETUP);
-        config.at("N_OUT").get_to(N_OUT);
-        config.at("N_PROGRESS").get_to(N_PROGRESS);
-        config.at("b").get_to(b);
-        config.at("xStart").get_to(xStart);
-        config.at("xEnd").get_to(xEnd);
-        config.at("gamma0").get_to(gamma0);
-        config.at("Kb").get_to(Kb);
-        config.at("chi").get_to(chi);
-        config.at("a_eq").get_to(a_eq);
-        config.at("b_eq").get_to(b_eq);
-        config.at("m").get_to(m);
-        config.at("ALPHA_MAX").get_to(ALPHA_MAX);
-        config.at("L_MAX").get_to(L_MAX);
-        config.at("R").get_to(R);
-        config.at("Q").get_to(Q);
-        config.at("D").get_to(D);
-
         init();
 
         // Инициализация положений частиц
@@ -660,15 +615,15 @@ public:
         }
 
         // Инициализация плотности, массы, сглаживающего расстояния
-        double v0 = (xStart + xEnd) / 2.0;
+        //double v0 = (xStart + xEnd) / 2.0;
         for (int i = 0; i < N; i++) {
-            if (i < LAYER_LENGTH || i > N - LAYER_LENGTH) {
+            if (i < SOLID_LAYER_LENGTH || i > N - SOLID_LAYER_LENGTH) {
                 particles_type[i] = Type::SOLID;
             } else {
                 particles_type[i] = Type::FLEX;
             }
             mass[i] = 1.0 / N;
-            h[i] = 0.4;
+            h[i] = H_DEFAULT;
         }
         cudaMemcpy(particles_type_dev, particles_type, N * sizeof(Type), cudaMemcpyHostToDevice);
         cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
@@ -678,7 +633,7 @@ public:
         
         clear();
     }
-}
+};
 
 
 int main() {
