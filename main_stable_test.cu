@@ -22,11 +22,14 @@ void check(T err, const char* const func, const char* const file, const int line
 
 #define SQRT_M_PI 1.77245385091
 
+enum class Type{ FLEX, SOLID };
+
 // Константы CUDA
 #define BLOCK_SIZE 32
 
 // Константы SPH
 #define N 100
+#define SOLID_LAYER_LENGTH 3
 constexpr double DT = 0.02;  // Шаг по времени
 constexpr int NT = 100;  // Кол-во шагов по времени
 constexpr int NT_SETUP = 400;  // Кол-во шагов на настройку
@@ -39,8 +42,8 @@ constexpr int PROGRESS_STEP = NT / N_PROGRESS;
 double b = 4;  // Демпфирование скорости для настройки начального состояния
 #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
 #define H_DEFAULT (0.4)  // Расстояние сглаживания
-constexpr double xStart = -3.0;
-constexpr double xEnd = 3.0;
+constexpr double xStart = -5.0;
+constexpr double xEnd = 5.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // На GPU
@@ -54,6 +57,7 @@ double* u_dev;
 double* a_dev;
 double* mass_dev;
 double* h_array_dev;
+Type* particles_type_dev;
 
 // На CPU
 double* x;
@@ -69,6 +73,7 @@ double* u_mhalf;
 double* u_phalf;
 double* mass;
 double* h_array;
+Type* particles_type;
 
 
 
@@ -86,6 +91,7 @@ void init() {
     u_phalf = new double[N];
     mass = new double[N];
     h_array = new double[N];
+    particles_type = new Type[N];
 
 
     cudaMalloc(&x_dev, N * sizeof(double));
@@ -98,6 +104,7 @@ void init() {
     cudaMalloc(&a_dev, N * sizeof(double));
     cudaMalloc(&mass_dev, N * sizeof(double));
     cudaMalloc(&h_array_dev, N * sizeof(double));
+    cudaMalloc(&particles_type_dev, N * sizeof(Type));
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -115,6 +122,7 @@ void clear() {
     delete[] u_phalf;
     delete[] mass;
     delete[] h_array;
+    delete[] particles_type;
 
     cudaFree(x_dev);
     cudaFree(xx_dev);
@@ -126,6 +134,7 @@ void clear() {
     cudaFree(a_dev);
     cudaFree(mass_dev);
     cudaFree(h_array_dev);
+    cudaFree(particles_type_dev);
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -148,9 +157,10 @@ __device__ double kernelDeriv3(double r, double h) {
     return pow(h, -7) / sqrt(M_PI) * exp(-pow(r, 2) / pow(h, 2)) * (-8.0 * pow(r, 3) + 12.0 * pow(h, 2) * r);
 }
 
-__global__ void densityKernel(double* x, double* mass, double* h_array, double* rho) {
+__global__ void densityKernel(double* x, double* mass, double* h_array, Type* particles_type, double* rho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
+    if (particles_type[i] != Type::FLEX) return;
 
     double sum = 0.0;
     double x_i = x[i];
@@ -162,6 +172,9 @@ __global__ void densityKernel(double* x, double* mass, double* h_array, double* 
         sum += mass[j] * kernelDeriv0(uij, hij);
     }
     rho[i] = sum;
+    __syncthreads();
+    h_array[i] = 10 * mass[i] / rho[i];
+
 }
 
 /* Вычисление плотности в каждом из мест расположения частиц с помощью сглаживающего ядра
@@ -173,15 +186,16 @@ __host__ void density(double* x, double* rho) {
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
 
-    densityKernel<<<gridSize, blockSize>>>(x_dev, mass_dev, h_array_dev, rho_dev);
+    densityKernel<<<gridSize, blockSize>>>(x_dev, mass_dev, h_array_dev, particles_type_dev, rho_dev);
 
     cudaMemcpy(rho, rho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void pressureKernelDRho(double* x, double* mass, double* h_array, double* drho) {
+__global__ void pressureKernelDRho(double* x, double* mass, double* h_array, Type* particles_type, double* drho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
+    if (particles_type[i] != Type::FLEX) return;
 
     double sum = 0.0;
     double x_i = x[i];
@@ -195,9 +209,10 @@ __global__ void pressureKernelDRho(double* x, double* mass, double* h_array, dou
     drho[i] = sum;
 }
 
-__global__ void pressureKernelDDRho(double* x, double* mass, double* h_array, double* ddrho) {
+__global__ void pressureKernelDDRho(double* x, double* mass, double* h_array, Type* particles_type, double* ddrho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
+    if (particles_type[i] != Type::FLEX) return;
 
     double sum = 0.0;
     double x_i = x[i];
@@ -211,9 +226,10 @@ __global__ void pressureKernelDDRho(double* x, double* mass, double* h_array, do
     ddrho[i] = sum;
 }
 
-__global__ void pressureKernel(double* x, double* rho, double* drho, double* ddrho, double* mass, double* h_array, double* P) {
+__global__ void pressureKernel(double* x, double* rho, double* drho, double* ddrho, double* mass, double* h_array, Type* particles_type, double* P) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
+    if (particles_type[i] != Type::FLEX) return;
 
     double sum = 0.0;
     double x_i = x[i];
@@ -238,20 +254,21 @@ __host__ void pressure(double* x, double* rho, double* P) {
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
 
-    pressureKernelDRho<<<gridSize, blockSize>>>(x_dev, mass_dev, h_array_dev, drho_dev);
-    pressureKernelDDRho<<<gridSize, blockSize>>>(x_dev, mass_dev, h_array_dev, ddrho_dev);
+    pressureKernelDRho<<<gridSize, blockSize>>>(x_dev, mass_dev, h_array_dev, particles_type_dev, drho_dev);
+    pressureKernelDDRho<<<gridSize, blockSize>>>(x_dev, mass_dev, h_array_dev, particles_type_dev, ddrho_dev);
 
     cudaMemcpy(drho, drho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(ddrho, ddrho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
 
-    pressureKernel<<<gridSize, blockSize>>>(x_dev, rho_dev, drho_dev, ddrho_dev, mass_dev, h_array_dev, P_dev);
+    pressureKernel<<<gridSize, blockSize>>>(x_dev, rho_dev, drho_dev, ddrho_dev, mass_dev, h_array_dev, particles_type_dev, P_dev);
     cudaMemcpy(P, P_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* mass, double* h_array, double* a) {
+__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* mass, double* h_array, Type* particles_type, double* a) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
+    if (particles_type[i] != Type::FLEX) return;
 
     double sum = 0.0;
     double x_i = x[i];
@@ -259,7 +276,7 @@ __global__ void accelerationKernel(double* x, double* u, double* rho, double* P,
     double hij = 0.0;
 
     // Дэмпирование и гармонический потенциал (0.5 x^2)
-//    a[i] = - u[i] * b - x[i];
+    a[i] = - u[i] * b - x[i];
 
     for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
@@ -281,7 +298,7 @@ __host__ void acceleration(double* x, double* u, double* rho, double* P, double 
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
 
-    accelerationKernel<<<gridSize, blockSize>>>(x_dev, u_dev, rho_dev, P_dev, b, mass_dev, h_array_dev, a_dev);
+    accelerationKernel<<<gridSize, blockSize>>>(x_dev, u_dev, rho_dev, P_dev, b, mass_dev, h_array_dev, particles_type_dev, a_dev);
     cudaMemcpy(a, a_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
@@ -361,15 +378,28 @@ void compute() {
         xx[i] = x[i]; // Для графика
     }
 
+    double v0 = (xStart + xEnd) / 2.0;
+    for (int i = 0; i < N; i++) {
+        if (i < SOLID_LAYER_LENGTH || i >= N - SOLID_LAYER_LENGTH) {
+            rho[i] = 0.3;
+            particles_type[i] = Type::SOLID;
+        } else {
+//            rho[i] = 0.3 * exp(-(x[i] - v0) * (x[i] - v0) / (4.0));
+            particles_type[i] = Type::FLEX;
+        }
+    }
+    cudaMemcpy(rho_dev, rho, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(particles_type_dev, particles_type, N * sizeof(Type), cudaMemcpyHostToDevice);
+
     // Инициализация масс частиц
     for (int i = 0; i < N; i++) {
-        mass[i] = M;
+        mass[i] = M;//xStep * rho[i];//M;
     }
     cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
 
     // Инициализация сглаживающего расстояния
     for (int i = 0; i < N; i++) {
-        h_array[i] = H_DEFAULT;
+        h_array[i] = H_DEFAULT;//10 * mass[i] / rho[i];
     }
     cudaMemcpy(h_array_dev, h_array, N * sizeof(double), cudaMemcpyHostToDevice);
 
@@ -394,6 +424,7 @@ void compute() {
     for (int i = -NT_SETUP; i < NT; i++) {
         // Leap frog
         for (int j = 0; j < N; j++) {
+            if (particles_type[j] != Type::FLEX) continue;
             u_phalf[j] = u_mhalf[j] + a[j] * DT;
             x[j] = x[j] + u_phalf[j] * DT;
             u[j] = 0.5 * (u_mhalf[j] + u_phalf[j]);
@@ -423,9 +454,10 @@ void compute() {
 
         // Вывод в файлы
         if (i >= 0 && i % N_OUT == 0) {
-            probeDensity(x, xx, probe_rho);
+//            probeDensity(x, xx, probe_rho);
             for (int j = 0; j < N; j++) {
-                outfile << xx[j] << " " << t << " " << probe_rho[j] << endl; // TODO
+//                outfile << xx[j] << " " << t << " " << probe_rho[j] << endl; // TODO
+                outfile << x[j] << " " << t << " " << rho[j] << endl;
             }
             for (int j = 0; j < N; j++) {
                 double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
