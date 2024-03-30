@@ -51,13 +51,13 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 double gamma0 = 4.32e-12;
 double Kb = 1.38e-16;
 double T = 77.0;
-#define chi 28.17 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
-double a_eq = (0.0065*0.0065);  // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323) (0.0065*0.0065)
+#define chi 4 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
+double a_eq = (0.065*0.065);  // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323) (0.0065*0.0065)
 double b_eq = 1.0;
 int m = 7;
 #define ALPHA_MAX 9
 #define L_MAX 9
-double R = (0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+double R = (-0.25*gamma0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 double Q = R;
 double D = -Q;
 
@@ -370,17 +370,6 @@ __global__ void pressureKernel(double* x, double* rho, double* drho, double* ddr
         uij = x_i - x[j];
         hij = (h_array[i] + h_array[j]) / 2.0;
         sum += 0.25 * (drho[j] * drho[j] / rho[j] - ddrho[j]) / (chi * chi);
-
-        double sum_nl = 0.0;
-        for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
-            double l_sum = 0.0;
-            for (int l = 0; l <= L_MAX; l++) {
-                l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[j], l + 1);
-            }
-            sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
-        }
-//        printf("%lf = %lf\n", sum, sum_nl);
-        sum += 1.0 / (2.0 * chi * chi) * sum_nl;
         sum = sum * mass[j] / rho[j] * kernelDeriv0(uij, hij);
     }
     P[i] = sum;
@@ -408,7 +397,7 @@ __host__ void pressure(double* x, double* rho, double* P) {
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* mass, double* h_array, Type* particles_type, double* a) {
+__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* mass, double* h_array, Type* particles_type, double* G_s_sum_array, double* a) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
     if (particles_type[i] != Type::FLEX) return;
@@ -421,10 +410,21 @@ __global__ void accelerationKernel(double* x, double* u, double* rho, double* P,
     // Дэмпирование и гармонический потенциал (0.5 x^2)
 //    a[i] = - u[i] * b - x[i];
 
+    double sum_nl = 0.0;
+    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+        double l_sum = 0.0;
+        for (int l = 0; l <= L_MAX; l++) {
+            l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[i], l + 1);
+        }
+        sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
+    }
+//        printf("%lf = %lf\n", sum, sum_nl);
+    double P_NL = 1.0 / (2.0 * chi * chi) * sum_nl;
+
     for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
         hij = (h_array[i] + h_array[j]) / 2.0;
-        sum += -mass[j] * (P[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, hij);
+        sum += -mass[j] * (P[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) - P_NL/(rho[i] * rho[i])) * kernelDeriv1(uij, hij);
     }
     a[i] = sum;
 }
@@ -441,7 +441,7 @@ __host__ void acceleration(double* x, double* u, double* rho, double* P, double 
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
 
-    accelerationKernel<<<gridSize, blockSize>>>(x_dev, u_dev, rho_dev, P_dev, b, mass_dev, h_array_dev, particles_type_dev, a_dev);
+    accelerationKernel<<<gridSize, blockSize>>>(x_dev, u_dev, rho_dev, P_dev, b, mass_dev, h_array_dev, particles_type_dev, G_s_sum_array_dev, a_dev);
     cudaMemcpy(a, a_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
@@ -612,10 +612,10 @@ void compute() {
 
         // Вывод в файлы
         if (i >= 0 && i % N_OUT == 0) {
-//            probeDensity(x, xx, probe_rho);
+            probeDensity(x, xx, probe_rho);
             for (int j = 0; j < N; j++) {
-//                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
-                outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl;
+                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
+//                outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl;
             }
             for (int j = 0; j < N; j++) {
                 double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
