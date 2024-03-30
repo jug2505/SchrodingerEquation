@@ -29,7 +29,7 @@ enum class Type{ FLEX, SOLID };
 
 // Константы SPH
 #define N 100
-#define SOLID_LAYER_LENGTH 0
+#define SOLID_LAYER_LENGTH 3
 constexpr double DT = 0.02;  // Шаг по времени
 constexpr int NT = 1500;  // Кол-во шагов по времени
 constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
@@ -41,7 +41,7 @@ constexpr int PROGRESS_STEP = NT / N_PROGRESS;
 // Потенциал: 1/2 x^2
 double b = 0;  // Демпфирование скорости для настройки начального состояния
 #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
-#define H_DEFAULT (0.2)  // Расстояние сглаживания
+#define H_DEFAULT (0.4)  // Расстояние сглаживания
 #define H_COEF 8
 constexpr double xStart = -3.0;
 constexpr double xEnd = 3.0;
@@ -55,8 +55,8 @@ double T = 77.0;
 double a_eq = (0.0065*0.0065);  // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323) (0.0065*0.0065)
 double b_eq = 1.0;
 int m = 7;
-#define ALPHA_MAX 10
-#define L_MAX 5
+#define ALPHA_MAX 9
+#define L_MAX 9
 double R = (0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 double Q = R;
 double D = -Q;
@@ -303,8 +303,8 @@ __global__ void densityKernel(double* x, double* mass, double* h_array, Type* pa
         sum += mass[j] * kernelDeriv0(uij, hij);
     }
     rho[i] = sum;
-//    __syncthreads();
-//    h_array[i] = H_COEF * mass[i] / rho[i];
+    __syncthreads();
+    h_array[i] = H_COEF * mass[i] / rho[i];
 
 }
 
@@ -375,7 +375,7 @@ __global__ void pressureKernel(double* x, double* rho, double* drho, double* ddr
         for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
             double l_sum = 0.0;
             for (int l = 0; l <= L_MAX; l++) {
-                l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l) * pow(rho[j], l + 1);
+                l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[j], l + 1);
             }
             sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
         }
@@ -542,7 +542,7 @@ void compute() {
 
     // Инициализация сглаживающего расстояния
     for (int i = 0; i < N; i++) {
-        h_array[i] = H_DEFAULT;//H_COEF * mass[i] / rho[i];
+        h_array[i] = H_COEF * mass[i] / rho[i];
     }
     cudaMemcpy(h_array_dev, h_array, N * sizeof(double), cudaMemcpyHostToDevice);
 
@@ -582,7 +582,7 @@ void compute() {
         // Leap frog
         for (int j = 0; j < N; j++) {
             if (particles_type[j] != Type::FLEX) continue;
-            printf("%lf\n", a[j]);
+//            printf("%lf\n", a[j]);
             u_phalf[j] = u_mhalf[j] + a[j] * DT;
             x[j] = x[j] + u_phalf[j] * DT;
             u[j] = 0.5 * (u_mhalf[j] + u_phalf[j]);
@@ -612,10 +612,10 @@ void compute() {
 
         // Вывод в файлы
         if (i >= 0 && i % N_OUT == 0) {
-            probeDensity(x, xx, probe_rho);
+//            probeDensity(x, xx, probe_rho);
             for (int j = 0; j < N; j++) {
-                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
-//                outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl;
+//                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
+                outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl;
             }
             for (int j = 0; j < N; j++) {
                 double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
