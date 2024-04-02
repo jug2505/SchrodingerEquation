@@ -51,9 +51,12 @@ constexpr double xStep = (xEnd - xStart) / (N - 1);
 double gamma0 = 4.32e-12;
 double Kb = 1.38e-16;
 double T = 77.0;
-#define chi 4 // 0: 20.0, 1: 40, 2: 8, 3: 4, 4: 5.6
-double a_eq = (0.065*0.065);  // 0: 0.3, 1: (0.0323*0.0323), 2: (0.00016*0.00016), 3: 1, 4:(0.323*0.323) (0.0065*0.0065)
-double b_eq = 1.0;
+// chi=20 a=0.0065
+// chi=40 a=0.0323
+// chi=4 a=0.323
+#define chi 20
+double a_eq = 0.0065;
+double b_eq = 2.0;
 int m = 7;
 #define ALPHA_MAX 9
 #define L_MAX 9
@@ -424,7 +427,7 @@ __global__ void accelerationKernel(double* x, double* u, double* rho, double* P,
     for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
         hij = (h_array[i] + h_array[j]) / 2.0;
-        sum += -mass[j] * (P[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) - P_NL/(rho[i] * rho[i])) * kernelDeriv1(uij, hij);
+        sum += -mass[j] * (P_NL / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) /*- P_NL/(rho[i] * rho[i])*/) * kernelDeriv1(uij, hij);
     }
     a[i] = sum;
 }
