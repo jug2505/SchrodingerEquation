@@ -42,9 +42,9 @@ constexpr int PROGRESS_STEP = NT / N_PROGRESS;
 double b = 0;  // Демпфирование скорости для настройки начального состояния
 #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
 #define H_DEFAULT (0.4)  // Расстояние сглаживания
-#define H_COEF 8
-constexpr double xStart = -3.0;
-constexpr double xEnd = 3.0;
+#define H_COEF 1.3
+constexpr double xStart = -6.0;
+constexpr double xEnd = 6.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // Коэффициенты задачи
@@ -60,7 +60,7 @@ double b_eq = 2.0;
 int m = 7;
 #define ALPHA_MAX 9
 #define L_MAX 9
-double R = (-0.25*gamma0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+double R = (0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 double Q = R;
 double D = -Q;
 
@@ -411,7 +411,7 @@ __global__ void accelerationKernel(double* x, double* u, double* rho, double* P,
     double hij = 0.0;
 
     // Дэмпирование и гармонический потенциал (0.5 x^2)
-//    a[i] = - u[i] * b - x[i];
+    // a[i] = - u[i] * b - x[i];
 
     double sum_nl = 0.0;
     for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
@@ -421,13 +421,22 @@ __global__ void accelerationKernel(double* x, double* u, double* rho, double* P,
         }
         sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
     }
-//        printf("%lf = %lf\n", sum, sum_nl);
-    double P_NL = 1.0 / (2.0 * chi * chi) * sum_nl;
+    double P_NL = -1.0 / (2.0 * chi * chi) * sum_nl;
 
     for (int j = 0; j < N; j++) {
+//        double sum_nl = 0.0;
+//        for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+//            double l_sum = 0.0;
+//            for (int l = 0; l <= L_MAX; l++) {
+//                l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[j], l + 1);
+//            }
+//            sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
+//        }
+//        double P_NL_j = -1.0 / (2.0 * chi * chi) * sum_nl;
+
         uij = x_i - x[j];
         hij = (h_array[i] + h_array[j]) / 2.0;
-        sum += -mass[j] * (P_NL / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) /*- P_NL/(rho[i] * rho[i])*/) * kernelDeriv1(uij, hij);
+        sum += -mass[j] * (P_NL / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) /*+ P_NL/(rho[i] * rho[i]) + P_NL_j/(rho[j] * rho[j])*/) * kernelDeriv1(uij, hij);
     }
     a[i] = sum;
 }
