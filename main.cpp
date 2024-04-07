@@ -37,27 +37,26 @@ public:
     map<int, double> G_alpha_cache;
 
     // Коэффициенты новой задачи
-    int S_MAX = 7;
-    int m = S_MAX;
-    int ALPHA_MAX = 10;
-    int L_MAX = 5;
-    double R = (-0.5*gamma0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
-    double Q = R;
-    double D = (-Q);
+    // Коэффициенты задачи
     double gamma0 = 4.32e-12;
-    double chi = 28.17;
-    double E0 = 0.0;
-    double omega = 5.0e14;
-    double omega0 = 1.0e14;
     double Kb = 1.38e-16;
     double T = 77.0;
-    double a = (0.0065*0.0065);
+    // chi=20 a=0.0065
+    // chi=40 a=0.0323
+    // chi=4 a=0.323
+    double chi = 4;
+    double a = 0.323;
     double b = 2.0;
-    double F = 0.0;
-    double F0 = 1.0;
+    int m = 7;
+    #define ALPHA_MAX 10
+    #define ALPHA_MAX_IN_G 10
+    #define L_MAX 5
+    double R = (0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+    double Q = R;
+    double D = -Q;
 
     // Внутренние переменные
-    const int num_splits = 100000;
+    const int num_splits = 10000;
     int write_t_splits = 4;
     int current_t_split = 0;
     double previous_beam_width = 0.0;
@@ -69,7 +68,6 @@ public:
     }
 
     double F_func(const double p, const double s) {
-        //return 2.0 * gamma0 * D * (cos(2.0 * a_eq * p / 3.0) + 2.0  * cos(a_eq * p / 3.0) * cos(M_PI * s / m));
         return 2.0 * gamma0 * D * (cos(2.0 * p / 3.0) + 2.0 * cos(p / 3.0) * cos(M_PI * s / m));
     }
 
@@ -108,7 +106,7 @@ public:
 
     double GNominatorUnderIntegral(double p, double alpha, double s) {
         double sum = delta(0, s) / (2.0 * Kb * T);
-        for (double alpha = 1.0; alpha <= ALPHA_MAX; alpha++) {
+        for (double alpha = 1.0; alpha <= ALPHA_MAX_IN_G; alpha++) {
             sum += delta(alpha, s) * cos(alpha * p) / (Kb * T);
         }
         return cos(alpha * p) / (1.0 + exp(sum));
@@ -127,7 +125,7 @@ public:
 
     double simpsonIntegralGDenominator(double p, double alpha, double s) {
         double sum = delta(0, s) / (2.0 * Kb * T);
-        for (double alpha = 1.0; alpha <= ALPHA_MAX; alpha++) {
+        for (double alpha = 1.0; alpha <= ALPHA_MAX_IN_G; alpha++) {
             sum += delta(alpha, s) * cos(alpha * p) / (Kb * T);
         }
         return 1.0 / ( 1.0 + exp(sum));
@@ -144,7 +142,7 @@ public:
         return simpson_integral;
     }
 
-     double G(const int alpha) {
+    double G(const int alpha) {
         if (G_alpha_cache.find(alpha) != G_alpha_cache.end()) {
             return G_alpha_cache[alpha];
         }
@@ -481,105 +479,15 @@ public:
 
 class BesseHelper {
 public:
-    static void compute_nush_analogue_1000_E0_0() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = -15.0;
-        besse->x_stop = 15.0;
-        besse->E0 = 0.0;
-        besse->solve("../data/nush_analogue_1000_E0_0");
-    }
-
-    static void compute_nush_analogue_1000_E0_1() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = -15.0;
-        besse->x_stop = 15.0;
-        besse->E0 = 1.0;
-        besse->solve("../data/nush_analogue_1000_E0_1");
-    }
-
-    static void compute_nush_analogue_1000_E0_01() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = -15.0;
-        besse->x_stop = 15.0;
-        besse->E0 = 0.1;
-        besse->solve("../data/nush_analogue_1000_E0_01");
-    }
-
-    static void compute_nush_analogue_1000_E0_05() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = -15.0;
-        besse->x_stop = 15.0;
-        besse->E0 = 0.5;
-        besse->solve("../data/nush_analogue_1000_E0_05");
-    }
-
-    static void compute_nush_analogue_1000_FF0_m4() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = -15.0;
-        besse->x_stop = 15.0;
-        besse->E0 = 0.0;
-        besse->F = besse->m;
-        besse->F0 = 4.0;
-        besse->solve("../data/nush_analogue_1000_FF0_m4");
-    }
-
-    static void compute_nush_analogue_1000_FF0_m3() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = -15.0;
-        besse->x_stop = 15.0;
-        besse->E0 = 0.0;
-        besse->F = besse->m;
-        besse->F0 = 3.0;
-        besse->solve("../data/nush_analogue_1000_FF0_m3");
-    }
-
-    static void compute_nush_analogue_1000_FF0_m2() {
-        unique_ptr<Besse> besse(new Besse);
-        besse->M = 1000;
-        besse->N = 1000;
-        besse->t_start = 0.0;
-        besse->t_stop = 30.0;
-        besse->x_start = -15.0;
-        besse->x_stop = 15.0;
-        besse->E0 = 0.0;
-        besse->F = besse->m;
-        besse->F0 = 2.0;
-        besse->solve("../data/nush_analogue_1000_FF0_m2");
-    }
 
     static void compute_beam_dynamic() {
         unique_ptr<Besse> besse(new Besse);
         besse->M = 500;
-        besse->N = 15000;
+        besse->N = 1500;
         besse->t_start = 0.0;
         besse->t_stop = 30.0;
         besse->x_start = -10.0;
         besse->x_stop = 10.0;
-        besse->E0 = 0.0;
         besse->solve("../data/beam_dynamic");
     }
 };

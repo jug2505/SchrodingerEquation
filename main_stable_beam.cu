@@ -28,7 +28,7 @@ enum class Type{ FLEX, SOLID };
 #define BLOCK_SIZE 32
 
 // Константы SPH
-#define N 100
+#define N 1000
 #define SOLID_LAYER_LENGTH 3
 constexpr double DT = 0.02;  // Шаг по времени
 constexpr int NT = 1500;  // Кол-во шагов по времени
@@ -43,8 +43,8 @@ double b = 0;  // Демпфирование скорости для настр�
 #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
 #define H_DEFAULT (0.4)  // Расстояние сглаживания
 #define H_COEF 1.3
-constexpr double xStart = -6.0;
-constexpr double xEnd = 6.0;
+constexpr double xStart = -10.0;
+constexpr double xEnd = 10.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // Коэффициенты задачи
@@ -59,6 +59,7 @@ double a_eq = 0.0065;
 double b_eq = 2.0;
 int m = 7;
 #define ALPHA_MAX 9
+#define ALPHA_MAX_IN_G 10
 #define L_MAX 9
 double R = (0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 double Q = R;
@@ -216,7 +217,7 @@ __host__ double delta(const int alpha, const int s) {
 
 __host__ double GNominatorUnderIntegral(double p, double alpha, double s) {
     double sum = delta(0, s) / (2.0 * Kb * T);
-    for (double alpha = 1.0; alpha <= ALPHA_MAX; alpha++) {
+    for (double alpha = 1.0; alpha <= ALPHA_MAX_IN_G; alpha++) {
         sum += delta(alpha, s) * cos(alpha * p) / (Kb * T);
     }
     return cos(alpha * p) / (1.0 + exp(sum));
@@ -235,7 +236,7 @@ __host__ double simpsonIntegralGNominator(const double a, const double b, const 
 
 __host__ double simpsonIntegralGDenominator(double p, double alpha, double s) {
     double sum = delta(0, s) / (2.0 * Kb * T);
-    for (double alpha = 1.0; alpha <= ALPHA_MAX; alpha++) {
+    for (double alpha = 1.0; alpha <= ALPHA_MAX_IN_G; alpha++) {
         sum += delta(alpha, s) * cos(alpha * p) / (Kb * T);
     }
     return 1.0 / ( 1.0 + exp(sum));
