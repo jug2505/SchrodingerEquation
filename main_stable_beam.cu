@@ -28,7 +28,7 @@ enum class Type{ FLEX, SOLID };
 #define BLOCK_SIZE 32
 
 // Константы SPH
-#define N 500
+#define N 1000
 #define SOLID_LAYER_LENGTH 3
 constexpr double DT = 0.02;  // Шаг по времени
 constexpr int NT = 1500;  // Кол-во шагов по времени
@@ -61,7 +61,7 @@ int m = 7;
 #define ALPHA_MAX 9
 #define ALPHA_MAX_IN_G 10
 #define L_MAX 9
-double R = (-0.5*gamma0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+double R = (-0.25*gamma0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 double Q = R;
 double D = -Q;
 
@@ -432,9 +432,9 @@ __global__ void pressureKernel(double* x, double* rho, double* drho, double* ddr
     for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
         double l_sum = 0.0;
         for (int l = 0; l <= L_MAX; l++) {
-            l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[j], l + 1);
+            l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[i], l + 1);
         }
-        sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum * mass[j] / rho[j] * kernelDeriv0(uij, hij);
+        sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
     }
     P_NL[i] = -1.0 / (2.0 * chi * chi) * sum_nl;
 }
@@ -477,8 +477,8 @@ __global__ void accelerationKernel(double* x, double* u, double* rho, double* P,
     for (int j = 0; j < N; j++) {
         uij = x_i - x[j];
         hij = (h_array[i] + h_array[j]) / 2.0;
-        sum += -mass[j] * (P[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) + P_NL[i]/(rho[i] * rho[i]) + P_NL[j]/(rho[j] * rho[j])) * kernelDeriv1(uij, hij);
-//        sum += -mass[j] * (P_NL[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, hij);
+//        sum += -mass[j] * (P[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) + P_NL[i]/(rho[i] * rho[i]) + P_NL[j]/(rho[j] * rho[j])) * kernelDeriv1(uij, hij);
+        sum += -mass[j] * (P_NL[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, hij);
 
     }
     a[i] = sum;
@@ -671,7 +671,9 @@ void compute() {
             probeDensity(x, xx, probe_rho);
             for (int j = 0; j < N; j++) {
                 outfile << xx[j] << " " << t << " " << probe_rho[j] / (a_eq*a_eq) << endl; // TODO
-//                outfile << x[j] << " " << t << " " << rho[j] / (a_eq*a_eq) << endl;
+//                if (x[j] >= xStart && x[j] < xEnd) {
+//                    outfile << x[j] << " " << t << " " << rho[j] / (a_eq*a_eq) << endl;
+//                }
             }
 
             long x_idx = N % 2 == 0 ? N / 2 : N / 2 + 1;
