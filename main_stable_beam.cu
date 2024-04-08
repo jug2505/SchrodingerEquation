@@ -28,7 +28,7 @@ enum class Type{ FLEX, SOLID };
 #define BLOCK_SIZE 32
 
 // Константы SPH
-#define N 1000
+#define N 500
 #define SOLID_LAYER_LENGTH 3
 constexpr double DT = 0.02;  // Шаг по времени
 constexpr int NT = 1500;  // Кол-во шагов по времени
@@ -55,18 +55,18 @@ double T = 77.0;
 // chi=40 a=0.0323
 // chi=4 a=0.323
 #define chi 20
-double a_eq = 0.0065;
+double a_eq = 0.323;
 double b_eq = 2.0;
 int m = 7;
 #define ALPHA_MAX 9
 #define ALPHA_MAX_IN_G 10
 #define L_MAX 9
-double R = (0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+double R = (-0.5*gamma0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 double Q = R;
 double D = -Q;
 
 // Кол-во разбиений для интеграла
-const int num_splits = 1000;
+const int num_splits = 10000;
 
 // Кэш
 map<pair<int, int>, double> G_alpha_s_cache;
@@ -86,6 +86,7 @@ double* mass_dev;
 double* h_array_dev;
 Type* particles_type_dev;
 double* G_s_sum_array_dev;
+double* P_NL_dev;
 
 // На CPU
 double* x;
@@ -103,6 +104,7 @@ double* mass;
 double* h_array;
 Type* particles_type;
 double* G_s_sum_array;
+double* P_NL;
 
 
 
@@ -122,7 +124,7 @@ void init() {
     h_array = new double[N];
     particles_type = new Type[N];
     G_s_sum_array = new double[ALPHA_MAX];
-
+    P_NL = new double[N];
 
     cudaMalloc(&x_dev, N * sizeof(double));
     cudaMalloc(&xx_dev, N * sizeof(double));
@@ -136,6 +138,7 @@ void init() {
     cudaMalloc(&h_array_dev, N * sizeof(double));
     cudaMalloc(&particles_type_dev, N * sizeof(Type));
     cudaMalloc(&G_s_sum_array_dev, ALPHA_MAX * sizeof(double));
+    cudaMalloc(&P_NL_dev, N * sizeof(double));
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -155,6 +158,7 @@ void clear() {
     delete[] h_array;
     delete[] particles_type;
     delete[] G_s_sum_array;
+    delete[] P_NL;
 
     cudaFree(x_dev);
     cudaFree(xx_dev);
@@ -168,6 +172,7 @@ void clear() {
     cudaFree(h_array_dev);
     cudaFree(particles_type_dev);
     cudaFree(G_s_sum_array_dev);
+    cudaFree(P_NL_dev);
     checkCudaErrors(cudaGetLastError());
 }
 
@@ -259,7 +264,7 @@ __host__ double G(const int alpha) {
     }
     double nominator = 0.0;
     double denominator = 0.0;
-    for(double s = 1.0; s <= m; s++) {
+    for(int s = 1; s <= m; s++) {
         nominator += delta(alpha, s) / gamma0 * simpsonIntegralGNominator(-M_PI, M_PI, num_splits, alpha, s);
         denominator += simpsonIntegralGDenominator(-M_PI, M_PI, num_splits, alpha, s);
     }
@@ -291,6 +296,51 @@ __device__ double kernelDeriv2(double r, double h) {
 __device__ double kernelDeriv3(double r, double h) {
     return pow(h, -7) / sqrt(M_PI) * exp(-pow(r, 2) / pow(h, 2)) * (-8.0 * pow(r, 3) + 12.0 * pow(h, 2) * r);
 }
+
+//__device__ double kernelDeriv0(double r, double h) {
+//    double e = r / h;
+//    double abse = abs(e);
+//    double w = 2.0 / (3.0 * h);
+//    if (abse >= 0.0 && abse < 1.0) {
+//        w = w * (1.0 - 1.5*e*e + 0.75*e*e*e);
+//    } else if (abse >= 1 && abse < 2) {
+//        w = w * (0.25 * (2.0 - e) * (2.0 - e) * (2.0 - e));
+//    } else {
+//        w = 0.0;
+//    }
+//    return w/ (abse * h);
+//
+//}
+//__device__ double kernelDeriv1(double r, double h) {
+//    double e = r / h;
+//    double abse = abs(e);
+//
+//    double w = 2.0 / (3.0 * h);
+//    if (abse >= 0.0 && abse < 1.0) {
+//        w = w * ( 2.25*e*e - 3.0*e);
+//    } else if (abse >= 1 && abse < 2) {
+//        w = w * (-0.75 * (2.0 - e) * (2.0 - e));
+//    } else {
+//        w = 0.0;
+//    }
+//    return w/ (abse * h);
+//
+//}
+//__device__ double kernelDeriv2(double r, double h) {
+//    double e = r / h;
+//    double abse = abs(e);
+//
+//    double w = 2.0 / (3.0 * h);
+//    if (abse >= 0.0 && abse < 1.0) {
+//        w = w * (4.5*e - 3.0);
+//    } else if (abse >= 1 && abse < 2) {
+//        w = w * (1.5 * (2.0 - e));
+//    } else {
+//        w = 0.0;
+//    }
+//    return w/ (abse * h);
+//}
+
 
 __global__ void densityKernel(double* x, double* mass, double* h_array, Type* particles_type, double* rho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -361,7 +411,7 @@ __global__ void pressureKernelDDRho(double* x, double* mass, double* h_array, Ty
     ddrho[i] = sum;
 }
 
-__global__ void pressureKernel(double* x, double* rho, double* drho, double* ddrho, double* mass, double* h_array, Type* particles_type, double* G_s_sum_array, double* P) {
+__global__ void pressureKernel(double* x, double* rho, double* drho, double* ddrho, double* mass, double* h_array, Type* particles_type, double* G_s_sum_array, double* P_NL, double* P) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
     if (particles_type[i] != Type::FLEX) return;
@@ -377,6 +427,16 @@ __global__ void pressureKernel(double* x, double* rho, double* drho, double* ddr
         sum = sum * mass[j] / rho[j] * kernelDeriv0(uij, hij);
     }
     P[i] = sum;
+
+    double sum_nl = 0.0;
+    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
+        double l_sum = 0.0;
+        for (int l = 0; l <= L_MAX; l++) {
+            l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[j], l + 1);
+        }
+        sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum * mass[j] / rho[j] * kernelDeriv0(uij, hij);
+    }
+    P_NL[i] = -1.0 / (2.0 * chi * chi) * sum_nl;
 }
 
 /* Вычисление давления на каждой из частиц с помощью сглаживающего ядра
@@ -396,12 +456,12 @@ __host__ void pressure(double* x, double* rho, double* P) {
     cudaMemcpy(drho, drho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(ddrho, ddrho_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
 
-    pressureKernel<<<gridSize, blockSize>>>(x_dev, rho_dev, drho_dev, ddrho_dev, mass_dev, h_array_dev, particles_type_dev, G_s_sum_array_dev, P_dev);
+    pressureKernel<<<gridSize, blockSize>>>(x_dev, rho_dev, drho_dev, ddrho_dev, mass_dev, h_array_dev, particles_type_dev, G_s_sum_array_dev, P_NL_dev, P_dev);
     cudaMemcpy(P, P_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* mass, double* h_array, Type* particles_type, double* G_s_sum_array, double* a) {
+__global__ void accelerationKernel(double* x, double* u, double* rho, double* P, double b, double* mass, double* h_array, Type* particles_type, double* G_s_sum_array, double* P_NL, double* a) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
     if (particles_type[i] != Type::FLEX) return;
@@ -414,30 +474,12 @@ __global__ void accelerationKernel(double* x, double* u, double* rho, double* P,
     // Дэмпирование и гармонический потенциал (0.5 x^2)
     // a[i] = - u[i] * b - x[i];
 
-    double sum_nl = 0.0;
-    for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
-        double l_sum = 0.0;
-        for (int l = 0; l <= L_MAX; l++) {
-            l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[i], l + 1);
-        }
-        sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
-    }
-    double P_NL = -1.0 / (2.0 * chi * chi) * sum_nl;
-
     for (int j = 0; j < N; j++) {
-//        double sum_nl = 0.0;
-//        for (int alpha = 1; alpha <= ALPHA_MAX; alpha++) {
-//            double l_sum = 0.0;
-//            for (int l = 0; l <= L_MAX; l++) {
-//                l_sum += fl(l) * l / (l + 1.0) * pow(alpha, 2 * l + 1) * pow(rho[j], l + 1);
-//            }
-//            sum_nl += alpha * G_s_sum_array[alpha - 1] * l_sum;
-//        }
-//        double P_NL_j = -1.0 / (2.0 * chi * chi) * sum_nl;
-
         uij = x_i - x[j];
         hij = (h_array[i] + h_array[j]) / 2.0;
-        sum += -mass[j] * (P_NL / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) /*+ P_NL/(rho[i] * rho[i]) + P_NL_j/(rho[j] * rho[j])*/) * kernelDeriv1(uij, hij);
+        sum += -mass[j] * (P[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j]) + P_NL[i]/(rho[i] * rho[i]) + P_NL[j]/(rho[j] * rho[j])) * kernelDeriv1(uij, hij);
+//        sum += -mass[j] * (P_NL[i] / pow(rho[i], 2) + P[j] / (rho[j] * rho[j])) * kernelDeriv1(uij, hij);
+
     }
     a[i] = sum;
 }
@@ -454,7 +496,7 @@ __host__ void acceleration(double* x, double* u, double* rho, double* P, double 
     int blockSize = BLOCK_SIZE;
     int gridSize = (N + blockSize - 1) / blockSize;
 
-    accelerationKernel<<<gridSize, blockSize>>>(x_dev, u_dev, rho_dev, P_dev, b, mass_dev, h_array_dev, particles_type_dev, G_s_sum_array_dev, a_dev);
+    accelerationKernel<<<gridSize, blockSize>>>(x_dev, u_dev, rho_dev, P_dev, b, mass_dev, h_array_dev, particles_type_dev, G_s_sum_array_dev, P_NL_dev, a_dev);
     cudaMemcpy(a, a_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
     checkCudaErrors(cudaGetLastError());
 }
@@ -537,10 +579,11 @@ void compute() {
     double v0 = (xStart + xEnd) / 2.0;
     for (int i = 0; i < N; i++) {
         if (i < SOLID_LAYER_LENGTH || i >= N - SOLID_LAYER_LENGTH) {
-            rho[i] = a_eq;
+            rho[i] = a_eq*a_eq;
             particles_type[i] = Type::SOLID;
         } else {
             rho[i] = a_eq * exp(-(x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));
+            rho[i] *= rho[i];
             particles_type[i] = Type::FLEX;
         }
     }
@@ -549,7 +592,7 @@ void compute() {
 
     // Инициализация масс частиц
     for (int i = 0; i < N; i++) {
-        mass[i] = xStep * rho[i];//a_eq*a_eq * exp(-2.0 * (x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));//xStep * rho[i];
+        mass[i] = xStep * rho[i];//a_eq*a_eq * exp((x[i] - v0) * (x[i] - v0) / (b_eq * b_eq));//xStep * rho[i];
     }
     cudaMemcpy(mass_dev, mass, N * sizeof(double), cudaMemcpyHostToDevice);
 
@@ -586,8 +629,8 @@ void compute() {
     ofstream outfile("solution_cuda.txt");
     outfile << "X T Z" << endl;
 
-    ofstream outfile_exact("solution_exact_cuda.txt");
-    outfile_exact << "X T Z" << endl;
+    ofstream outfile_beam_width("solution_cuda_beam_width.txt");
+    outfile_beam_width << "T Width" << endl;
 
     // Главный цикл по времени
     double t = 0.0;
@@ -627,17 +670,23 @@ void compute() {
         if (i >= 0 && i % N_OUT == 0) {
             probeDensity(x, xx, probe_rho);
             for (int j = 0; j < N; j++) {
-                outfile << xx[j] << " " << t << " " << probe_rho[j] / a_eq << endl; // TODO
-//                outfile << x[j] << " " << t << " " << rho[j] / a_eq << endl;
+                outfile << xx[j] << " " << t << " " << probe_rho[j] / (a_eq*a_eq) << endl; // TODO
+//                outfile << x[j] << " " << t << " " << rho[j] / (a_eq*a_eq) << endl;
             }
-            for (int j = 0; j < N; j++) {
-                double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
-                outfile_exact << xx[j] << " " << t << " " << exact << endl;
+
+            long x_idx = N % 2 == 0 ? N / 2 : N / 2 + 1;
+            double middle_value = probe_rho[x_idx] / (a_eq*a_eq);
+            x_idx++;
+            double next_value = probe_rho[x_idx] / (a_eq*a_eq);
+            while (next_value * 2.0 > middle_value) {
+                x_idx++;
+                next_value = probe_rho[x_idx] / (a_eq*a_eq);
             }
+            outfile_beam_width << t << " " << xx[x_idx] << endl;
         }
     }
     outfile.close();
-    outfile_exact.close();
+    outfile_beam_width.close();
 
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
@@ -650,7 +699,6 @@ void compute() {
 
     clear();
 }
-
 
 int main() {
     compute();

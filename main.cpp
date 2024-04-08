@@ -44,14 +44,14 @@ public:
     // chi=20 a=0.0065
     // chi=40 a=0.0323
     // chi=4 a=0.323
-    double chi = 4;
+    double chi = 20;
     double a = 0.323;
     double b = 2.0;
     int m = 7;
     #define ALPHA_MAX 10
     #define ALPHA_MAX_IN_G 10
     #define L_MAX 5
-    double R = (0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+    double R = (-0.5*gamma0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
     double Q = R;
     double D = -Q;
 

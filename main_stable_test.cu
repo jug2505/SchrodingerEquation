@@ -42,6 +42,7 @@ constexpr int PROGRESS_STEP = NT / N_PROGRESS;
 double b = 4;  // Демпфирование скорости для настройки начального состояния
 #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
 #define H_DEFAULT (0.4)  // Расстояние сглаживания
+#define H_COEF 10
 constexpr double xStart = -5.0;
 constexpr double xEnd = 5.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
@@ -173,7 +174,7 @@ __global__ void densityKernel(double* x, double* mass, double* h_array, Type* pa
     }
     rho[i] = sum;
     __syncthreads();
-    h_array[i] = 10 * mass[i] / rho[i];
+    h_array[i] = H_COEF * mass[i] / rho[i];
 
 }
 
@@ -454,10 +455,10 @@ void compute() {
 
         // Вывод в файлы
         if (i >= 0 && i % N_OUT == 0) {
-//            probeDensity(x, xx, probe_rho);
+            probeDensity(x, xx, probe_rho);
             for (int j = 0; j < N; j++) {
-//                outfile << xx[j] << " " << t << " " << probe_rho[j] << endl; // TODO
-                outfile << x[j] << " " << t << " " << rho[j] << endl;
+                outfile << xx[j] << " " << t << " " << probe_rho[j] << endl; // TODO
+//                outfile << x[j] << " " << t << " " << rho[j] << endl;
             }
             for (int j = 0; j < N; j++) {
                 double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
