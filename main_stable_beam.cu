@@ -61,7 +61,7 @@ int m = 7;
 #define ALPHA_MAX 9
 #define ALPHA_MAX_IN_G 10
 #define L_MAX 9
-double R = (-0.25*gamma0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
+double R = (0.0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 double Q = R;
 double D = -Q;
 
