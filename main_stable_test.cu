@@ -28,11 +28,11 @@ enum class Type{ FLEX, SOLID };
 #define BLOCK_SIZE 32
 
 // Константы SPH
-#define N 100
-#define SOLID_LAYER_LENGTH 3
+#define N 500
+#define SOLID_LAYER_LENGTH 0
 constexpr double DT = 0.02;  // Шаг по времени
-constexpr int NT = 100;  // Кол-во шагов по времени
-constexpr int NT_SETUP = 400;  // Кол-во шагов на настройку
+constexpr int NT = 500;  // Кол-во шагов по времени
+constexpr int NT_SETUP = 800;  // Кол-во шагов на настройку
 constexpr int N_OUT = 1;  // Вывод каждые N_OUT шагов
 constexpr int N_PROGRESS = 10;
 constexpr int PROGRESS_STEP = NT / N_PROGRESS;
@@ -42,9 +42,9 @@ constexpr int PROGRESS_STEP = NT / N_PROGRESS;
 double b = 4;  // Демпфирование скорости для настройки начального состояния
 #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
 #define H_DEFAULT (0.4)  // Расстояние сглаживания
-#define H_COEF 10
-constexpr double xStart = -5.0;
-constexpr double xEnd = 5.0;
+#define H_COEF 1.3
+constexpr double xStart = -3.0;
+constexpr double xEnd = 3.0;
 constexpr double xStep = (xEnd - xStart) / (N - 1);
 
 // На GPU
@@ -173,8 +173,8 @@ __global__ void densityKernel(double* x, double* mass, double* h_array, Type* pa
         sum += mass[j] * kernelDeriv0(uij, hij);
     }
     rho[i] = sum;
-    __syncthreads();
-    h_array[i] = H_COEF * mass[i] / rho[i];
+//    __syncthreads();
+//    h_array[i] = H_COEF * mass[i] / rho[i];
 
 }
 
@@ -420,6 +420,9 @@ void compute() {
     ofstream outfile_exact("solution_exact_cuda.txt");
     outfile_exact << "X T Z" << endl;
 
+    ofstream outfile_rmse("solution_cuda_rmse.txt");
+    outfile_rmse<< "T RMSE" << endl;
+
     // Главный цикл по времени
     double t = 0.0;
     for (int i = -NT_SETUP; i < NT; i++) {
@@ -460,14 +463,22 @@ void compute() {
                 outfile << xx[j] << " " << t << " " << probe_rho[j] << endl; // TODO
 //                outfile << x[j] << " " << t << " " << rho[j] << endl;
             }
+
+            double rmse = 0.0;
             for (int j = 0; j < N; j++) {
                 double exact = 1.0 / sqrt(M_PI) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0) * exp(-(xx[j] - sin(t)) * (xx[j]- sin(t)) / 2.0);
                 outfile_exact << xx[j] << " " << t << " " << exact << endl;
+
+                rmse += (exact  - probe_rho[j]) * (exact  - probe_rho[j]);
             }
+            rmse = sqrt(rmse / N);
+
+            outfile_rmse << t << " " << rmse << endl;
         }
     }
     outfile.close();
     outfile_exact.close();
+    outfile_rmse.close();
 
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);

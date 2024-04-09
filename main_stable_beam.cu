@@ -28,12 +28,12 @@ enum class Type{ FLEX, SOLID };
 #define BLOCK_SIZE 32
 
 // Константы SPH
-#define N 1000
+#define N 500
 #define SOLID_LAYER_LENGTH 3
-constexpr double DT = 0.02;  // Шаг по времени
-constexpr int NT = 1500;  // Кол-во шагов по времени
+constexpr double DT = 0.01;  // Шаг по времени
+constexpr int NT = 3000;  // Кол-во шагов по времени
 constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
-constexpr int N_OUT = 15;  // Вывод каждые N_OUT шагов
+constexpr int N_OUT = 6;  // Вывод каждые N_OUT шагов
 constexpr int N_PROGRESS = 10;
 constexpr int PROGRESS_STEP = NT / N_PROGRESS;
 
