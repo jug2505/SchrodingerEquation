@@ -627,7 +627,7 @@ void compute() {
     }
 
     ofstream outfile("solution_cuda.txt");
-    outfile << "X T Z" << endl;
+//    outfile << "X T Z" << endl;
 
     ofstream outfile_beam_width("solution_cuda_beam_width.txt");
     outfile_beam_width << "T Width" << endl;
@@ -704,5 +704,7 @@ void compute() {
 
 int main() {
     compute();
+
+    system("cd ..; python3 graph.py");
     return 0;
 }
