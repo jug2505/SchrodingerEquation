@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
+#include <json/json.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 #include <map>
 
 using namespace std;
+using namespace Json;
 
 #define checkCudaErrors(val) check( (val), #val, __FILE__, __LINE__)
 template<typename T>
@@ -703,6 +705,12 @@ void compute() {
 }
 
 int main() {
+    ifstream jsonFile("../beam_conf.json");
+    Reader reader;
+    Value data;
+    reader.parse(jsonFile, data);
+    int N = data["N"].asInt();
+
     compute();
 
     system("cd ..; python3 graph.py");
