@@ -30,24 +30,24 @@ enum class Type{ FLEX, SOLID };
 #define BLOCK_SIZE 32
 
 // Константы SPH
-#define N 500
-#define SOLID_LAYER_LENGTH 3
-constexpr double DT = 0.01;  // Шаг по времени
-constexpr int NT = 3000;  // Кол-во шагов по времени
-constexpr int NT_SETUP = 0;  // Кол-во шагов на настройку
-constexpr int N_OUT = 6;  // Вывод каждые N_OUT шагов
-constexpr int N_PROGRESS = 10;
-constexpr int PROGRESS_STEP = NT / N_PROGRESS;
+int N = 500;
+int SOLID_LAYER_LENGTH = 3;
+double DT = 0.01;  // Шаг по времени
+int NT = 3000;  // Кол-во шагов по времени
+int NT_SETUP = 0;  // Кол-во шагов на настройку
+int N_OUT = 6;  // Вывод каждые N_OUT шагов
+int N_PROGRESS = 10;
+int PROGRESS_STEP = NT / N_PROGRESS;
 
 // i d_t psi + nabla^2/2 psi -x^2 psi/2 = 0
 // Потенциал: 1/2 x^2
 double b = 0;  // Демпфирование скорости для настройки начального состояния
 #define M (1.0 / N) // Масса частицы SPH ( M * n = 1 normalizes |wavefunction|^2 to 1)
 #define H_DEFAULT (0.4)  // Расстояние сглаживания
-#define H_COEF 1.3
-constexpr double xStart = -10.0;
-constexpr double xEnd = 10.0;
-constexpr double xStep = (xEnd - xStart) / (N - 1);
+double H_COEF = 1.3;
+double xStart = -10.0;
+double xEnd = 10.0;
+double xStep = (xEnd - xStart) / (N - 1);
 
 // Коэффициенты задачи
 double gamma0 = 4.32e-12;
@@ -56,13 +56,13 @@ double T = 77.0;
 // chi=20 a=0.0065
 // chi=40 a=0.0323
 // chi=4 a=0.323
-#define chi 20
+double chi = 20;
 double a_eq = 0.323;
 double b_eq = 2.0;
 int m = 7;
-#define ALPHA_MAX 9
-#define ALPHA_MAX_IN_G 10
-#define L_MAX 9
+double ALPHA_MAX = 9;
+double ALPHA_MAX_IN_G = 10;
+double L_MAX = 9;
 double R = (0.0); // R = Q = -D = 0 , (-0.25*gamma0), (-0.5*gamma0)
 double Q = R;
 double D = -Q;
@@ -704,13 +704,21 @@ void compute() {
     clear();
 }
 
-int main() {
+void parseConfig() {
     ifstream jsonFile("../beam_conf.json");
     Reader reader;
     Value data;
     reader.parse(jsonFile, data);
-    int N = data["N"].asInt();
 
+    N = data["N"].asInt();
+    SOLID_LAYER_LENGTH = data["SOLID_LAYER_LENGTH"].asInt();
+    DT = data["DT"].asDouble();
+
+
+}
+
+int main() {
+    parseConfig();
     compute();
 
     system("cd ..; python3 graph.py");
