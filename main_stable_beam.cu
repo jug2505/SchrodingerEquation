@@ -704,8 +704,8 @@ void compute() {
     clear();
 }
 
-void parseConfig() {
-    ifstream jsonFile("../beam_conf.json");
+void parseConfig(string path) {
+    ifstream jsonFile(path);
     Reader reader;
     Value data;
     reader.parse(jsonFile, data);
@@ -713,12 +713,32 @@ void parseConfig() {
     N = data["N"].asInt();
     SOLID_LAYER_LENGTH = data["SOLID_LAYER_LENGTH"].asInt();
     DT = data["DT"].asDouble();
-
-
+    NT = data["NT"].asDouble();
+    NT_SETUP = data["NT_SETUP"].asDouble();
+    N_OUT = data["N_OUT"].asInt();
+    N_PROGRESS = data["N_PROGRESS"].asInt();
+    b = data["b"].asDouble();
+    H_COEF = data["H_COEF"].asDouble();
+    xStart = data["xStart"].asDouble();
+    xEnd = data["xEnd"].asDouble();
+    gamma0 = data["gamma0"].asDouble();
+    Kb = data["Kb"].asDouble();
+    chi = data["chi"].asDouble();
+    a_eq = data["a_eq"].asDouble();
+    b_eq = data["b_eq"].asDouble();
+    m = data["m"].asInt();
+    ALPHA_MAX = data["ALPHA_MAX"].asInt();
+    ALPHA_MAX_IN_G = data["ALPHA_MAX_IN_G"].asInt();
+    L_MAX = data["L_MAX"].asInt();
+    R = data["R"].asDouble();
+    Q = data["Q"].asDouble();
+    D = data["D"].asDouble();
+    PROGRESS_STEP = NT / N_PROGRESS;
+    xStep = (xEnd - xStart) / (N - 1);
 }
 
 int main() {
-    parseConfig();
+    parseConfig("../config/beam_conf.json");
     compute();
 
     system("cd ..; python3 graph.py");
