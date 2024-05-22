@@ -4,6 +4,7 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from tkinter import messagebox as mb
 
 
 def run_program():
@@ -39,6 +40,21 @@ def run_program():
     canvas = FigureCanvasTkAgg(fig, master=root)
     canvas.get_tk_widget().grid(row=0, column=2, rowspan=14, padx=10, sticky='nesw')
     canvas.draw()
+
+def show_about_window():
+    about_text = "Программа для моделирования расспространения лазерного пучка в массиве углеродных нанотрубок.\n\n" \
+        "N - количество частиц SPH, используемых при моделировании.\n" \
+        "DT - шаг по времени.\n" \
+        "NT - общее количество шагов по времени.\n" \
+        "$zeta start - левая граница координаты \\zeta\n.$" \
+        "zeta end - правая граница координаты \\zeta.\n" \
+        "$kappa - \\kappa=kc^2/\\omega_0^2.$" \
+        "a - амплитуда электрического поля пучка в начальный момент времени.\n" \
+        "b - полуширина пучка в начальный момент времени.\n" \
+        "m - тип нанотрубок.\n" \
+        "$alpha, L - максимальные значения счётчиков \alpha и l при расчёте нелинейности.\n$" \
+        "R=Q=-D - параметры, характеризующий нелинейные взаимодействия.\n" 
+    mb.showinfo("Справка", about_text) 
 
 # Создание главного окна
 root = tk.Tk()
@@ -83,6 +99,11 @@ fig, ax = plt.subplots()
 canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.get_tk_widget().grid(row=0, column=2, rowspan=14, padx=10, sticky='nesw')
 canvas.draw()
+
+main_menu = Menu(root, tearoff=0)
+root.config(menu=main_menu)
+help_menu = Menu(main_menu, tearoff=0)    
+main_menu.add_command(label="Справка", command=show_about_window)
 
 # Запуск главного окна
 root.mainloop()
