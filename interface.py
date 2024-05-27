@@ -21,7 +21,7 @@ def run_program():
     print(result.stdout)      # Вывод стандартного потока вывода внешней программы
     print(result.stderr)      # Вывод стандартного потока ошибок внешней программы
 
-    data = np.loadtxt('solution_cuda.txt', usecols=(0, 1, 2)) 
+    data = np.loadtxt('./cmake-build-debug/solution_cuda.txt', usecols=(0, 1, 2))
     X = data[:, 0]
     Y = data[:, 1]
     Z = data[:, 2]
@@ -47,7 +47,7 @@ def show_about_window():
         "NT - общее кол-во шагов по времени.\n" \
         "zeta start - левая граница координаты zeta.\n" \
         "zeta end - правая граница координаты zeta.\n" \
-        "kappa - kappa=kc^2/omega_0^2.\n" \
+        "kappa=kc^2/omega_0^2.\n" \
         "a - амплитуда элек-го поля пучка в нач. момент времени.\n" \
         "b - полуширина пучка в нач. момент времени.\n" \
         "m - тип нанотрубок.\n" \
@@ -85,7 +85,7 @@ graph_frame.grid(row=0, column=3, padx=10, pady=10, sticky='nesw')
 i = 0
 for param_name, var in params.items():
     label = tk.Label(root, text=f"{param_name}: ")
-    entry = tk.Entry(root, textvariable=var)
+    entry = tk.Entry(root, textvariable=var, width=10)
 
     label.grid(row=i, column=0, sticky='w')
     entry.grid(row=i, column=1, sticky='ew')
@@ -99,9 +99,9 @@ canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.get_tk_widget().grid(row=0, column=2, rowspan=14, padx=10, sticky='nesw')
 canvas.draw()
 
-main_menu = Menu(root, tearoff=0)
+main_menu = tk.Menu(root, tearoff=0)
 root.config(menu=main_menu)
-help_menu = Menu(main_menu, tearoff=0)    
+help_menu = tk.Menu(main_menu, tearoff=0)
 main_menu.add_command(label="Справка", command=show_about_window)
 
 # Запуск главного окна
