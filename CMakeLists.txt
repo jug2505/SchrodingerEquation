@@ -27,5 +27,5 @@ target_link_libraries (SchrodingerEquation PUBLIC jsoncpp_lib)
 #find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 #find_package(OpenMP REQUIRED)
 #
-#add_executable(SchrodingerEquation main.cpp)
+#add_executable(SchrodingerEquation main_dump_20230831.cpp)
 #target_link_libraries (SchrodingerEquation PUBLIC OpenMP::OpenMP_CXX Eigen3::Eigen )
