@@ -524,6 +524,20 @@ public:
         besse->F0 = 2.0;
         besse->solve("../data/nush_analogue_1000_FF0_m2");
     }
+
+    static void compute_nush_analogue_1000_FF0_m0() {
+        unique_ptr<Besse> besse(new Besse);
+        besse->M = 1000;
+        besse->N = 1000;
+        besse->t_start = 0.0;
+        besse->t_stop = 30.0;
+        besse->x_start = -15.0;
+        besse->x_stop = 15.0;
+        besse->E0 = 0.0;
+        besse->F = 0.0;
+        besse->F0 = 1.0;
+        besse->solve("../data/nush_analogue_1000_FF0_m0");
+    }
 };
 
 
@@ -534,6 +548,7 @@ int main(){
     BesseHelper::compute_nush_analogue_1000_FF0_m4();
     BesseHelper::compute_nush_analogue_1000_FF0_m3();
     BesseHelper::compute_nush_analogue_1000_FF0_m2();
+    BesseHelper::compute_nush_analogue_1000_FF0_m0();
 
     auto end = chrono::steady_clock::now();
     auto elapsed_m = std::chrono::duration_cast<chrono::minutes>(end - begin);
